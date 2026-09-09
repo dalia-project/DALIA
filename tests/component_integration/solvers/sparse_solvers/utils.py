@@ -17,12 +17,14 @@ def _create_solver(
     solver_type: str,
 ):
     from dalia.configs.dalia_config import SolverConfig
-    from dalia.solvers import SparseSolver
+    from dalia.solvers import SparseSolver, STilesSolver
 
     config = SolverConfig(type=solver_type)
 
     if solver_type == "scipy":
         return SparseSolver(config=config)
+    elif solver_type == "stiles":
+        return STilesSolver(config=config)
     else:
         raise ValueError(f"Unknown solver type: {solver_type}")
 

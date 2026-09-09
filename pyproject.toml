@@ -54,7 +54,8 @@ multiprocessing = [
     "mpi4py",
 ]
 solvers = [
-    "serinv @ git+https://github.com/vincent-maillou/serinv"
+    "serinv @ git+https://github.com/vincent-maillou/serinv",
+    "sTiles",
 ]
 
 [project.urls]

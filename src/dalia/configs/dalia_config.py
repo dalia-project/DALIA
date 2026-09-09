@@ -2,7 +2,7 @@
 
 import tomllib
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, PositiveInt
 
@@ -10,9 +10,19 @@ from pydantic import BaseModel, ConfigDict, PositiveInt
 class SolverConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    type: Literal["dense", "scipy", "serinv"] = "scipy"
+    type: Literal["dense", "scipy", "serinv", "stiles"] = "scipy"
 
     min_processes: PositiveInt = 1
+
+    # --- sTiles solver options (type="stiles") ---
+    # Threads per factorization. Default: physical cores of the node divided by
+    # the number of DALIA processes.
+    stiles_threads: Optional[PositiveInt] = None
+    # Tile size in elements (-1 lets sTiles choose, equivalent to 40 in our
+    # tests). Larger tiles (~120) pay off for block sizes of a few thousand.
+    stiles_tile_size: int = 40
+    # Tile storage mode ("auto" lets sTiles pick dense/semisparse/sparse tiles).
+    stiles_tile_mode: Literal["auto", "dense", "semisparse", "sparse"] = "sparse"
 
 
 class BFGSConfig(BaseModel):
@@ -58,7 +68,6 @@ class DaliaConfig(BaseModel):
 
     # --- Verbosity level ------------------------------------------------------
     verbosity: int = 0  # 0: minimal, 1: more info
-
 
 
 def parse_config(config: dict | str) -> DaliaConfig:

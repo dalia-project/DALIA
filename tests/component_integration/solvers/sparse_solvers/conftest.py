@@ -1,5 +1,7 @@
 # Copyright 2024-2025 DALIA authors. All rights reserved.
 
+import importlib.util
+
 import pytest
 
 MATRIX_SIZE = [
@@ -29,6 +31,13 @@ def density(request: pytest.FixtureRequest) -> int:
 
 SOLVERS_TYPES = [
     pytest.param("scipy", id="solver_type=scipy"),
+    pytest.param(
+        "stiles",
+        id="solver_type=stiles",
+        marks=pytest.mark.skipif(
+            importlib.util.find_spec("sTiles") is None, reason="sTiles not installed"
+        ),
+    ),
 ]
 
 

@@ -14,6 +14,9 @@ def test_factorize_correctness(
     matrix_size,
     density,
 ):
+    if solver_type != "scipy":
+        pytest.skip("This test inspects the LU factors of the scipy solver.")
+
     A = generate_spd_spmatrix(matrix_size, density)
 
     solver = create_solver(solver_type)

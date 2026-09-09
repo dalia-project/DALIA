@@ -9,7 +9,13 @@ import copy
 from dalia import ArrayLike, NDArray, backend_flags, comm_rank, comm_size, sp, xp
 from dalia.configs.dalia_config import DaliaConfig
 from dalia.core.model import Model
-from dalia.solvers import DenseSolver, DistSerinvSolver, SerinvSolver, SparseSolver
+from dalia.solvers import (
+    DenseSolver,
+    DistSerinvSolver,
+    SerinvSolver,
+    SparseSolver,
+    STilesSolver,
+)
 from dalia.utils import (
     DummyCommunicator,
     add_str_header,
@@ -134,6 +140,15 @@ class DALIA:
             )
         elif self.config.solver.type == "scipy":
             self.solver = SparseSolver(
+                config=self.config.solver,
+            )
+        elif self.config.solver.type == "stiles":
+            if self.comm_qeval.size > 1:
+                raise ValueError(
+                    "The sTiles solver is a shared-memory solver: it cannot be "
+                    "distributed over several processes (solver.min_processes > 1)."
+                )
+            self.solver = STilesSolver(
                 config=self.config.solver,
             )
         elif self.config.solver.type == "serinv":
