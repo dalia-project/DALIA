@@ -18,9 +18,8 @@ class SolverConfig(BaseModel):
     # Threads per factorization. Default: physical cores of the node divided by
     # the number of DALIA processes.
     stiles_threads: Optional[PositiveInt] = None
-    # Tile size in elements (-1 lets sTiles choose, equivalent to 40 in our
-    # tests). Larger tiles (~120) pay off for block sizes of a few thousand.
-    stiles_tile_size: int = 40
+    # Tile size in elements (-1 lets sTiles choose).
+    stiles_tile_size: int = 32
     # Tile storage mode ("auto" lets sTiles pick dense/semisparse/sparse tiles).
     stiles_tile_mode: Literal["auto", "dense", "semisparse", "sparse"] = "sparse"
 
