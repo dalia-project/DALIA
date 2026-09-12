@@ -9,7 +9,7 @@ The AR(1) process is defined as
 $$
 u_1 \sim \mathcal{N}(0, s2), \qquad
 u_t = \phi \, u_{t-1} + \varepsilon_t, \qquad
-\varepsilon_t \sim \mathcal{N}\big(0, \; s2 \, (1 - \phi^2)\big), \quad t = 2, \dots, n
+\varepsilon_t \sim \mathcal{N}\big(0, \; s2(1 - \phi^2)\big), \quad t = 2, \dots, n
 $$
 
 which gives the tridiagonal precision matrix
@@ -24,7 +24,7 @@ Q = \frac{1}{\texttt{denom}}
 & & & -\phi & 1
 \end{pmatrix},
 \qquad
-\texttt{denom} = s2 \, (1 - \phi^2).
+\texttt{denom} = s2(1 - \phi^2).
 $$
 
 The model contains three hyperparameters, theta = (phi, tau, prec_o):
