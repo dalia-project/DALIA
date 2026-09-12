@@ -1,5 +1,7 @@
 # Copyright 2024-2025 DALIA authors. All rights reserved.
 import gc
+import math
+import os
 import time
 from warnings import warn
 
@@ -7,10 +9,16 @@ import numpy as np
 import psutil
 import scipy.sparse as sparse_host
 
-from dalia import NDArray, comm_size, sp, xp
+from dalia import NDArray, backend_flags, comm_size, sp, xp
 from dalia.configs.dalia_config import SolverConfig
 from dalia.core.solver import Solver
 from dalia.utils import get_host, print_msg, synchronize_gpu
+
+# Let the worker threads float inside the process's CPU set. With its default
+# pinning policy, libstiles binds a single-threaded process running inside a
+# restricted CPU set to the first allowed core,
+# so several such processes on one node end up sharing that core.
+os.environ.setdefault("STILES_BIND", "0")
 
 try:
     from sTiles import sTiles as STilesHandle
@@ -43,9 +51,11 @@ class STilesSolver(Solver):
         if config.stiles_threads is not None:
             self.n_threads: int = config.stiles_threads
         else:
-            # Share the physical cores of the node between the DALIA processes.
+            # Share the physical cores of a node between the DALIA processes
+            # placed on it: one process per node gets all the cores.
             n_cores = psutil.cpu_count(logical=False) or 1
-            self.n_threads = max(1, n_cores // comm_size)
+            processes_per_node = max(math.ceil(comm_size / _number_of_nodes()), 1)
+            self.n_threads = max(1, n_cores // processes_per_node)
         self.tile_size: int = config.stiles_tile_size
         self.tile_mode: str = config.stiles_tile_mode
 
@@ -408,6 +418,21 @@ class STilesSolver(Solver):
 
 
 # ------------------------------------------------------------- host helpers
+def _number_of_nodes() -> int:
+    """Count the distinct nodes the MPI processes run on (1 without MPI).
+
+    Returns
+    -------
+    int
+        Number of distinct host names across `MPI.COMM_WORLD`.
+    """
+    if not backend_flags["mpi_avail"]:
+        return 1
+    from mpi4py import MPI
+
+    return len(set(MPI.COMM_WORLD.allgather(MPI.Get_processor_name())))
+
+
 def _to_host_csr(A) -> sparse_host.csr_matrix:
     """Convert a matrix to a host CSR matrix.
 

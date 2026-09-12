@@ -16,7 +16,7 @@ class SolverConfig(BaseModel):
 
     # --- sTiles solver options (type="stiles") ---
     # Threads per factorization. Default: physical cores of the node divided by
-    # the number of DALIA processes.
+    # the number of DALIA processes per node (all cores for one process per node).
     stiles_threads: Optional[PositiveInt] = None
     # Tile size in elements (-1 lets sTiles choose).
     stiles_tile_size: int = 32
