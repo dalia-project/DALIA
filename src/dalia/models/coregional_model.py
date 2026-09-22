@@ -608,6 +608,7 @@ class CoregionalModel(Model):
     def construct_Q_conditional(
         self,
         eta: NDArray,
+        x: NDArray = None,
     ) -> float:
         """Construct the conditional precision matrix.
 
@@ -617,6 +618,10 @@ class CoregionalModel(Model):
         The negative hessian is required, therefore the minus in front.
 
         """
+        # overwrite eta if x is provided, consistent with Model
+        if x is not None:
+            eta = self.a @ x
+
         d_vec = xp.zeros(self.n_observations)
 
         for i, model in enumerate(self.models):
@@ -690,6 +695,7 @@ class CoregionalModel(Model):
     def evaluate_likelihood(
         self,
         eta: NDArray,
+        x: NDArray = None,
     ) -> float:
         """Evaluate the likelihood.
         
@@ -697,6 +703,8 @@ class CoregionalModel(Model):
         ----------
         eta : NDArray
             Linear predictor.
+        x : NDArray, optional
+            Latent parameters. Unused, accepted for interface consistency with Model.
         kwargs : dict
             Additional arguments for the likelihood evaluation. These parameters are model dependent.
 

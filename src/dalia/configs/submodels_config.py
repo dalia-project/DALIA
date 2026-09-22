@@ -25,14 +25,21 @@ class SubModelConfig(BaseModel, ABC):
     # Input folder for this specific submodel
     input_dir: str = None
     type: Literal[
-        "spatio_temporal", "spatial", "regression", "brainiac", "ar1", "generic", "lkj"
+        "spatio_temporal",
+        "spatial",
+        "regression",
+        "brainiac",
+        "ar1",
+        "ar2",
+        "generic",
+        "lkj",
     ] = None
-    
+
     n_replicates: PositiveInt = 1  # Number of replicates for this submodel
     # Whether to replicate the design matrix for this submodel, only relevant if n_replicates > 1
     # should be set to false if the design matrix is already replicated in the input file
-    replicate_a: bool = True 
-     
+    replicate_a: bool = True
+
     @abstractmethod
     def read_hyperparameters(self) -> tuple[ArrayLike, list]: ...
 
@@ -82,6 +89,30 @@ class AR1SubModelConfig(SubModelConfig):
         theta = xp.array([self.phi, self.tau])
         # theta_internal = xp.array([self.phi, self.tau])
         theta_keys = ["phi", "tau"]
+
+        return theta, theta_keys
+
+
+class AR2SubModelConfig(SubModelConfig):
+
+    ## The AR(2) process is parametrized through its partial autocorrelations
+    ## (pacf1, pacf2), each in (-1, 1), which guarantees stationarity.
+    ## The AR coefficients follow as phi2 = pacf2 and phi1 = pacf1 * (1 - pacf2).
+    ## Use a beta prior with support (-1, 1) to cover the full range; the
+    ## default beta support (0, 1) restricts the pacf to positive values.
+    pacf1: float = None  # first partial autocorrelation (= lag-1 autocorrelation)
+    pacf2: float = None  # second partial autocorrelation (= phi2)
+    ph_pacf1: PriorHyperparametersConfig = None
+    ph_pacf2: PriorHyperparametersConfig = None
+
+    ## marginal precision of the process
+    tau: float = None  # Precision
+    ph_tau: PriorHyperparametersConfig = None
+
+    def read_hyperparameters(self):
+
+        theta = xp.array([self.pacf1, self.pacf2, self.tau])
+        theta_keys = ["pacf1", "pacf2", "tau"]
 
         return theta, theta_keys
 
@@ -187,6 +218,11 @@ def parse_config(config: dict | str) -> SubModelConfig:
         config["ph_tau"] = parse_priorhyperparameters_config(config["ph_tau"])
         config["ph_phi"] = parse_priorhyperparameters_config(config["ph_phi"])
         return AR1SubModelConfig(**config)
+    if model_type == "ar2":
+        config["ph_tau"] = parse_priorhyperparameters_config(config["ph_tau"])
+        config["ph_pacf1"] = parse_priorhyperparameters_config(config["ph_pacf1"])
+        config["ph_pacf2"] = parse_priorhyperparameters_config(config["ph_pacf2"])
+        return AR2SubModelConfig(**config)
     if model_type == "lkj":
         config["ph_sigma1"] = parse_priorhyperparameters_config(config["ph_sigma1"])
         config["ph_sigma2"] = parse_priorhyperparameters_config(config["ph_sigma2"])

@@ -41,6 +41,7 @@ from dalia.submodels import (
     SpatialSubModel,
     SpatioTemporalSubModel,
     AR1SubModel,
+    AR2SubModel,
     GenericSubModel,
     LKJSubModel,
 )
@@ -309,6 +310,50 @@ class Model(ABC):
                     raise ValueError(
                         "Unsupported prior hyperparameter type for rho in LKJSubModel."
                     )
+
+            elif isinstance(submodel, AR2SubModel):
+
+                for ph_pacf, hp_type in [
+                    (submodel.config.ph_pacf1, "pacf1"),
+                    (submodel.config.ph_pacf2, "pacf2"),
+                ]:
+                    if isinstance(ph_pacf, BetaPriorHyperparametersConfig):
+                        self.prior_hyperparameters.append(
+                            BetaPriorHyperparameters(
+                                config=ph_pacf,
+                            )
+                        )
+                    elif isinstance(
+                        ph_pacf,
+                        PenalizedComplexityPriorHyperparametersConfig,
+                    ):
+                        self.prior_hyperparameters.append(
+                            PenalizedComplexityPriorHyperparameters(
+                                config=ph_pacf,
+                                hyperparameter_type=hp_type,
+                            )
+                        )
+                    else:
+                        raise ValueError(
+                            f"Unknown prior hyperparameter type for ph_{hp_type}"
+                        )
+
+                if isinstance(
+                    submodel.config.ph_tau, GaussianPriorHyperparametersConfig
+                ):
+                    self.prior_hyperparameters.append(
+                        GaussianPriorHyperparameters(
+                            config=submodel.config.ph_tau,
+                        )
+                    )
+                elif isinstance(submodel.config.ph_tau, GammaPriorHyperparametersConfig):
+                    self.prior_hyperparameters.append(
+                        GammaPriorHyperparameters(
+                            config=submodel.config.ph_tau,
+                        )
+                    )
+                else:
+                    raise ValueError("Unknown prior hyperparameter type for ph_tau")
 
             elif isinstance(submodel, BrainiacSubModel):
                 # h2 hyperparameters
@@ -614,7 +659,7 @@ class Model(ABC):
                             self.theta_external[hp_idx]
                         )
                         # kwargs[self.theta_keys[hp_idx]] = float(theta_interpret[hp_idx])
-                elif isinstance(submodel, GenericSubModel):
+                elif isinstance(submodel, (AR2SubModel, GenericSubModel)):
                     for hp_idx in range(
                         self.hyperparameters_idx[i], self.hyperparameters_idx[i + 1]
                     ):
@@ -698,7 +743,7 @@ class Model(ABC):
                             self.theta_external[hp_idx]
                         )
 
-                elif isinstance(submodel, LKJSubModel):
+                elif isinstance(submodel, (AR2SubModel, LKJSubModel)):
                     for hp_idx in range(
                         self.hyperparameters_idx[i], self.hyperparameters_idx[i + 1]
                     ):
@@ -769,7 +814,8 @@ class Model(ABC):
 
         ATDA = self.construct_ATDA(eta)
         self.Q_conditional = self.Q_prior - ATDA
-        if type(self.Q_conditional) is xp.matrix:
+        # cupy has no `matrix` type; only numpy can produce one here
+        if isinstance(self.Q_conditional, getattr(xp, "matrix", ())):
             self.Q_conditional = xp.asarray(self.Q_conditional)
             
         return self.Q_conditional

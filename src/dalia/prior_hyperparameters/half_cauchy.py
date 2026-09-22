@@ -138,7 +138,7 @@ class HalfCauchyPriorHyperparameters(PriorHyperparameters):
         The computation follows:
             p(σ) = 2 / (π * scale * (1 + (σ / scale)²))
         """
-        if theta <= 0:
+        if xp.min(theta) <= 0:
             raise ValueError(f"Half-Cauchy sigma must be positive. Got theta={theta}")
 
         prior = 2.0 / (np.pi * self.scale * (1.0 + (theta / self.scale) ** 2))

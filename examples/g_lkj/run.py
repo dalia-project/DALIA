@@ -1,7 +1,6 @@
 import os
 import sys
 
-import numpy as np
 
 from dalia import xp
 from dalia.configs import dalia_config, likelihood_config, submodels_config, models_config
@@ -123,7 +122,7 @@ if __name__ == "__main__":
     Qinv_ref = xp.linalg.inv(Qconditional.toarray())
     print_msg(
         "Norm (marg var latent - ref):    ",
-        f"{np.linalg.norm(var_latent_params - xp.diag(Qinv_ref)):.4e}",
+        f"{xp.linalg.norm(var_latent_params - xp.diag(Qinv_ref)):.4e}",
     )
 
     # Compare marginal variances of observations
@@ -140,12 +139,7 @@ if __name__ == "__main__":
     lkj_est = lkj.lkj_covariance_matrix(theta_est[:3])
     print("LKJ estimated covariance matrix: \n", lkj_est)
 
-    lkj_ref = np.array(
-        [
-            [theta_ref[0] ** 2, theta_ref[0] * theta_ref[1] * theta_ref[2]],
-            [theta_ref[0] * theta_ref[1] * theta_ref[2], theta_ref[1] ** 2],
-        ]
-    )
+    lkj_ref = lkj.lkj_covariance_matrix(theta_ref[:3])
     print_msg("\n--- LKJ Covariance Matrix of Latent Parameters ---")
     print_msg("Estimated LKJ covariance matrix:\n", lkj_est)
     print_msg("Reference LKJ covariance matrix:\n", lkj_ref)

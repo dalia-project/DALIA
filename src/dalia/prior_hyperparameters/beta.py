@@ -64,11 +64,22 @@ class BetaPriorHyperparameters(PriorHyperparameters):
         if self.beta <= 0:
             raise ValueError(f"Beta must be positive, got {self.beta}")
 
+        # Support (lower, upper) of the scaled beta distribution:
+        # u = (theta - lower) / (upper - lower) ~ Beta(alpha, beta)
+        self.lower, self.upper = (float(v) for v in config.support)
+        self.width: float = self.upper - self.lower
+
+        # includes -log(upper - lower), the Jacobian of the affine map to (0, 1)
         self.log_normalizing_constant: float = float(
             sp.special.gammaln(self.alpha + self.beta)
             - sp.special.gammaln(self.alpha)
             - sp.special.gammaln(self.beta)
+            - np.log(self.width)
         )
+
+    def _to_unit(self, theta):
+        """Map theta from (lower, upper) to (0, 1)."""
+        return (theta - self.lower) / self.width
 
     def rescale_hyperparameters_to_internal(self, theta, direction):
         """
@@ -100,15 +111,24 @@ class BetaPriorHyperparameters(PriorHyperparameters):
             If direction is not recognized.
         """
         ### TODO: on longer term make scaled_logit default but let it be configurable in config
-        ## beta prior is defined on [0,1], while BFGS works on (-inf, inf)
+        ## beta prior is defined on (lower, upper), while BFGS works on (-inf, inf)
         if direction == "forward":
-            theta_scaled = scaled_logit(theta, direction="forward")
+            theta_scaled = scaled_logit(self._to_unit(theta), direction="forward")
         elif direction == "backward":
-            theta_scaled = scaled_logit(theta, direction="backward")
+            theta_scaled = self.lower + self.width * scaled_logit(
+                theta, direction="backward"
+            )
         elif direction == "forward_jacobian":
-            theta_scaled = scaled_logit(theta, direction="forward_jacobian")
+            # d internal / d theta = d internal / d u * d u / d theta
+            theta_scaled = (
+                scaled_logit(self._to_unit(theta), direction="forward_jacobian")
+                / self.width
+            )
         elif direction == "backward_log_jacobian":
-            theta_scaled = scaled_logit(theta, direction="backward_log_jacobian")
+            # log |d theta / d internal| = log(width) + log |d u / d internal|
+            theta_scaled = np.log(self.width) + scaled_logit(
+                theta, direction="backward_log_jacobian"
+            )
         else:
             raise ValueError(f"Unknown direction: {direction}")
 
@@ -148,10 +168,11 @@ class BetaPriorHyperparameters(PriorHyperparameters):
             If theta is not in (0, 1).
         """
 
+        u = self._to_unit(theta)
         prior = (
             xp.exp(self.log_normalizing_constant)
-            * theta ** (self.alpha - 1)
-            * (1 - theta) ** (self.beta - 1)
+            * u ** (self.alpha - 1)
+            * (1 - u) ** (self.beta - 1)
         )
 
         return prior
@@ -186,9 +207,10 @@ class BetaPriorHyperparameters(PriorHyperparameters):
             If theta is not in (0, 1).
         """
 
+        u = self._to_unit(theta)
         log_prior = (
-            (self.alpha - 1) * xp.log(theta)
-            + (self.beta - 1) * xp.log(1 - theta)
+            (self.alpha - 1) * xp.log(u)
+            + (self.beta - 1) * xp.log(1 - u)
             + self.log_normalizing_constant
         )
 

@@ -48,7 +48,9 @@ class DaliaConfig(BaseModel):
     theta_reduction_tol: float = 1e-4
 
     inner_iteration_max_iter: PositiveInt = 50
-    eps_inner_iteration: float = 1e-3
+    # keep well below eps_gradient_f: the inner iteration is warm-started, so a loose
+    # tolerance makes f, its gradient and hessian depend on the evaluation order
+    eps_inner_iteration: float = 1e-8
     eps_gradient_f: float = 1e-3
     eps_hessian_f: float = 5 * 1e-3
 

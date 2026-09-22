@@ -47,9 +47,12 @@ class LKJSubModel(SubModel):
         q01 = -rho * sigma1 * sigma2 / denom
 
         # Build sparse matrix
-        row = [0, 0, 1, 1]
-        col = [0, 1, 0, 1]
-        data = [q00, q01, q01, q11]
+        # explicit 1-D xp arrays: cupyx coo_matrix rejects lists of 0-d arrays
+        row = xp.array([0, 0, 1, 1])
+        col = xp.array([0, 1, 0, 1])
+        data = xp.stack(
+            [xp.asarray(q, dtype=xp.float64) for q in (q00, q01, q01, q11)]
+        )
 
         Q_prior = sp.sparse.coo_matrix((data, (row, col)), shape=(2, 2))
 

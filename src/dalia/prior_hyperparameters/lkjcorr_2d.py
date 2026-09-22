@@ -1,5 +1,8 @@
 # Copyright 2024-2026 DALIA authors. All rights reserved.
 
+import numpy as np
+from scipy import special as scipy_special
+
 from dalia import sp, xp
 
 from dalia.configs.priorhyperparameters_config import (
@@ -20,11 +23,11 @@ from dalia.core.prior_hyperparameters import PriorHyperparameters
 ## so then in log form: (\eta - 1) * log det(R) = (\eta - 1) * log(1 - \rho^2)
 # need to manually pick eta
 
-## need rescaling for optimization to unconstrained space, so we will use theta = atanh(\rho), where \rho \in (-1, 1)
-## reverse is rho = tanh(theta) = (e^{2\theta} - 1) / (e^{2\theta} + 1), where theta \in (-\infty, \infty),
+## need rescaling for optimization to unconstrained space, so we use theta = log((1 + \rho) / (1 - \rho)) = 2 * atanh(\rho)
+## reverse is rho = 2 * logistic(theta) - 1 = tanh(theta / 2), where theta \in (-\infty, \infty),
 ## need Jacobian for this transformation
-# d rho / d theta = 1 - tanh^2(theta) = 1 - \rho^2
-# log p(theta | \eta) = log p(rho | \eta) + log |d rho / d theta| = (\eta - 1) * log(1 - \rho^2) + log(1 - \rho^2) = \eta * log(1 - \rho^2)
+# d rho / d theta = (1 - \rho^2) / 2
+# log p(theta | \eta) = log p(rho | \eta) + log |d rho / d theta| = C + \eta * log(1 - \rho^2) - log(2)
 
 
 class LKJCorrPriorHyperparameters(PriorHyperparameters):
@@ -73,8 +76,11 @@ class LKJCorrPriorHyperparameters(PriorHyperparameters):
         if self.eta <= 0:
             raise ValueError(f"Eta must be positive, got {self.eta}")
 
-        # normalizing constant is actually needed later?
-        self.log_normalizing_constant: float = 0.0
+        # int_{-1}^{1} (1 - rho^2)^(eta - 1) d rho = 2^(2 eta - 1) * B(eta, eta)
+        self.log_normalizing_constant: float = -(
+            (2 * self.eta - 1) * float(np.log(2.0))
+            + float(scipy_special.betaln(self.eta, self.eta))
+        )
 
     def evaluate_prior(self, rho):
         """
@@ -90,14 +96,16 @@ class LKJCorrPriorHyperparameters(PriorHyperparameters):
         float
             Prior probability density of the correlation coefficient.
         """
-        if not (-1 <= rho <= 1):
+        if xp.any(xp.abs(xp.asarray(rho)) > 1):
             raise ValueError("Correlation coefficient rho must be in [-1, 1].")
 
         # For a 2x2 correlation matrix, the determinant is (1 - rho^2)
         det_R = 1 - rho**2
 
         # The LKJ prior density is proportional to det(R)^(eta - 1)
-        prior_density = det_R ** (self.eta - 1)
+        prior_density = float(np.exp(self.log_normalizing_constant)) * det_R ** (
+            self.eta - 1
+        )
 
         return prior_density
 
@@ -118,14 +126,14 @@ class LKJCorrPriorHyperparameters(PriorHyperparameters):
         log_prior : float
             Log prior probability of the correlation matrix.
         """
-        if not (-1 <= rho <= 1):
+        if xp.any(xp.abs(xp.asarray(rho)) > 1):
             raise ValueError("Correlation coefficient rho must be in [-1, 1].")
 
         # For a 2x2 correlation matrix, the determinant is (1 - rho^2)
         det_R = 1 - rho**2
 
         # The LKJ prior density is proportional to det(R)^(eta - 1)
-        log_prior = (self.eta - 1) * xp.log(det_R)
+        log_prior = self.log_normalizing_constant + (self.eta - 1) * xp.log(det_R)
 
         return log_prior
 

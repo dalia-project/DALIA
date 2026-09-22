@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, PositiveFloat
+from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, field_validator
 from scipy.sparse import spmatrix
 from typing_extensions import Annotated
 
@@ -44,6 +44,20 @@ class PenalizedComplexityPriorHyperparametersConfig(PriorHyperparametersConfig):
 class BetaPriorHyperparametersConfig(PriorHyperparametersConfig):
     alpha: PositiveFloat = None
     beta: PositiveFloat = None
+    # Support (lower, upper) of the scaled beta distribution. The standard
+    # beta distribution on (0, 1) is the default; e.g. (-1, 1) for correlation
+    # type hyperparameters such as the partial autocorrelations of an AR(p).
+    support: tuple[float, float] = (0.0, 1.0)
+
+    @field_validator("support")
+    @classmethod
+    def _check_support(cls, value):
+        lower, upper = value
+        if not lower < upper:
+            raise ValueError(
+                f"Beta prior support must satisfy lower < upper, got {value}"
+            )
+        return value
 
 
 class GammaPriorHyperparametersConfig(PriorHyperparametersConfig):

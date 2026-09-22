@@ -181,6 +181,9 @@ examples/g_ar1/**/*.npz
 examples/p_ar1/**/*.npy
 examples/p_ar1/**/*.npz
 
+examples/g_ar2/**/*.npy
+examples/g_ar2/**/*.npz
+
 # Profiler outputs
 *.nsys-rep
 *.qdstrm

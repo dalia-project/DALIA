@@ -38,8 +38,8 @@ if __name__ == "__main__":
     data_type = "nurses_hom"
     family = "gaussian"
     # covariates excluding intercept
-    # covariate_names = ["gender", "age", "experience", "wardtype"]
-    covariate_names = ["age"]
+    # must match the covariates written by preprocess_data_w_random_intercept.py
+    covariate_names = ["gender", "age", "experience", "wardtype"]
 
     if random_intercept:
         n_fixed_effects = len(covariate_names)  # no global intercept, only covariates

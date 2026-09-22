@@ -31,7 +31,7 @@ if __name__ == "__main__":
     # Check for parsed parameters
     args = parse_args()
 
-    n_replicates = 10  # number of replicates
+    n_replicates = 20  # Must match n_replicates in generate_data.py
 
     # Configurations of the regression submodel with built-in replication
     regression_dict = {
