@@ -77,6 +77,59 @@ class CoregionalModelConfig(ModelConfig):
                 theta_keys.append(f"lambda_{i}_{j}")
 
         return theta, theta_keys
+    
+    
+class NewCoregionalModelConfig(ModelConfig):
+    n_models: PositiveInt = None
+
+    sigmas: list[float] = None  # Sigmas
+    w: list[float] = None  # Lambdas
+
+    ph_sigmas: list[PriorHyperparametersConfig] = None
+    ph_w: list[PriorHyperparametersConfig] = None
+
+    @model_validator(mode="after")
+    def check_n_models(self):
+        assert self.n_models == 2 or self.n_models == 3, "n_models must be 2 or 3"
+        return self
+
+    @model_validator(mode="after")
+    def check_hyperparameters_length(self):
+        if self.n_models is not None:
+            if self.sigmas is not None and len(self.sigmas) != self.n_models:
+                raise ValueError(
+                    f"Length of sigmas ({len(self.sigmas)}) does not match n_models ({self.n_models})"
+                )
+            n_w = self.n_models * (self.n_models - 1) // 2
+            if self.w is not None and len(self.w) != n_lambdas:
+                raise ValueError(
+                    f"Length of w ({len(self.w)}) does not match the required number of w ({n_lambdas})"
+                )
+        return self
+
+    @model_validator(mode="after")
+    def check_prior_hyperparameters_length(self):
+        if self.n_models is not None:
+            if self.sigmas is not None and len(self.ph_sigmas) != len(self.sigmas):
+                raise ValueError(
+                    f"Length of sigmas prior hyperparameters ({len(self.ph_sigmas)}) does not match number of sigmas ({len(self.sigmas)})"
+                )
+            if self.lambdas is not None and len(self.ph_lambdas) != len(self.lambdas):
+                raise ValueError(
+                    f"Length of lambdas prior hyperparameters ({len(self.ph_lambdas)}) does not match number of lambdas ({len(self.lambdas)})"
+                )
+        return self
+
+    def read_hyperparameters(self):
+        theta = xp.array(self.sigmas + self.lambdas)
+        theta_keys: list = []
+        for i in range(self.n_models):
+            theta_keys.append(f"sigma_{i}")
+        for i in range(self.n_models):
+            for j in range(i + 1, self.n_models):
+                theta_keys.append(f"lambda_{i}_{j}")
+
+        return theta, theta_keys
 
 
 def parse_config(config: dict | str) -> ModelConfig:
