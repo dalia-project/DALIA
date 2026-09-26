@@ -96,7 +96,8 @@ class ARSubModel(SubModel):
         pacf = np.array(
             [kwargs.get(f"pacf{k}") for k in range(1, self.order + 1)], dtype=float
         )
-        tau = float(kwargs.get("tau", np.nan))
+        tau = kwargs.get("tau")
+        tau = np.nan if tau is None else float(tau)
         self._check_hyperparameters(pacf, tau)
 
         n, p, bw = self.n_latent_parameters, self.order, self.bandwidth
