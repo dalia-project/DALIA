@@ -6,7 +6,7 @@ import numpy as np
 from dalia import sp, xp
 from dalia.configs.submodels_config import ARSubModelConfig
 from dalia.core.submodel import SubModel
-from dalia.utils import add_str_header
+from dalia.utils import add_str_header, get_host
 
 
 class ARSubModel(SubModel):
@@ -132,6 +132,90 @@ class ARSubModel(SubModel):
             (xp.asarray(values[self._mask]), (self._row, self._col)),
             shape=(n, n),
         )
+
+    def derived_hyperparameters(
+        self,
+        theta_internal,
+        cov_theta_internal,
+        prior_hyperparameters,
+        quantiles,
+        n_samples: int = 10000,
+        seed: int = 0,
+        **kwargs,
+    ) -> dict:
+        """Compute the marginal distributions of the AR coefficients phi1, ..., phip.
+
+        An AR coefficient is a function of several partial autocorrelations,
+        its marginal distribution depends on their joint distribution and has
+        no closed form. The Gaussian approximation of the partial
+        autocorrelations in internal scale is sampled, the samples are rescaled
+        to external scale and mapped to the AR coefficients.
+
+        Parameters
+        ----------
+        theta_internal : NDArray
+            Mode of the hyperparameters of the submodel in internal scale.
+        cov_theta_internal : NDArray
+            Covariance of the hyperparameters of the submodel in internal scale.
+        prior_hyperparameters : list
+            Prior hyperparameters of the submodel, they rescale the hyperparameters.
+        quantiles : NDArray
+            Quantiles to compute. If None, no quantiles are computed.
+        n_samples : int
+            Number of samples used for the computation of the marginal distributions.
+        seed : int
+            Seed of the samples used for the computation of the marginal distributions.
+        kwargs : dict
+            Options of the computation, they are submodel dependent.
+
+        Returns
+        -------
+        dict
+            Marginal distributions of the derived hyperparameters.
+        """
+        p = self.order
+
+        rng = np.random.default_rng(seed)
+        samples = rng.multivariate_normal(
+            mean=get_host(theta_internal)[:p],
+            cov=get_host(cov_theta_internal)[:p, :p],
+            size=n_samples,
+        )
+
+        pacf = np.empty_like(samples)
+        for k in range(p):
+            pacf[:, k] = get_host(
+                prior_hyperparameters[k].rescale_hyperparameters_to_internal(
+                    xp.asarray(samples[:, k]), direction="backward"
+                )
+            )
+
+        phi = np.array([self._pacf_to_ar_coefficients(sample)[-1] for sample in pacf])
+
+        results = {}
+        for j in range(p):
+            pdf, edges = np.histogram(phi[:, j], bins=100, density=True)
+
+            param_dict = {
+                "mean_external": float(np.mean(phi[:, j])),
+                "variance_external": float(np.var(phi[:, j])),
+                "pdf_data": (0.5 * (edges[:-1] + edges[1:]), pdf),
+            }
+
+            if quantiles is not None:
+                levels = get_host(quantiles).tolist()
+                values = np.quantile(phi[:, j], levels).tolist()
+                param_dict["quantiles"] = {
+                    "levels": levels,
+                    "external": {
+                        "values": values,
+                        "pairs": list(zip(levels, values)),
+                    },
+                }
+
+            results[f"phi{j + 1}"] = param_dict
+
+        return results
 
     def __str__(self) -> str:
         """String representation of the submodel."""

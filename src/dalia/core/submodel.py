@@ -58,6 +58,25 @@ class SubModel(ABC):
         """Construct the prior precision matrix."""
         ...
 
+    def derived_hyperparameters(self, **kwargs) -> dict:
+        """Compute the marginal distributions of the derived hyperparameters.
+
+        Derived hyperparameters are functions of the hyperparameters of the
+        submodel. Submodels that have them override this method.
+
+        Parameters
+        ----------
+        kwargs : dict
+            Options of the computation, they are submodel dependent.
+
+        Returns
+        -------
+        dict
+            Marginal distribution of each derived hyperparameter, empty if the
+            submodel has none.
+        """
+        return {}
+
     def load_a_predict(self) -> sp.sparse.csc_matrix:
         """Load the design matrix for prediction."""
         self.a_predict: sp.sparse.csc_matrix = sp.sparse.csc_matrix(
