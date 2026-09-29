@@ -166,7 +166,13 @@ if __name__ == "__main__":
     )
     
     print_msg("\n--- Marginal distributions of the hyperparameters ---")
-    marginals_hp = dalia.marginal_distributions_hp() 
+    # derived=True adds the marginal distributions of the AR coefficients phi,
+    # which are sampled from the joint distribution of the partial autocorrelations
+    marginals_hp = dalia.marginal_distributions_hp(
+        derived=True,
+        n_samples=10000,
+        seed=0,
+    )
 
     fig, axes = plot_marginal_distributions_hp(marginals_hp)
     import matplotlib.pyplot as plt
@@ -179,4 +185,9 @@ if __name__ == "__main__":
     for p, q in quantile_pairs:
         print(f"   {p:.3f} quantile: {q:.4f}")
     
+    for key, marginal in marginals_hp["derived"].items():
+        print(f"Quantile pairs of {key}:")
+        for p, q in marginal["quantiles"]["external"]["pairs"]:
+            print(f"   {p:.3f} quantile: {q:.4f}")
+
     print_msg("\n--- Finished ---")
