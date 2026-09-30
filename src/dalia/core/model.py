@@ -285,6 +285,27 @@ class Model(ABC):
                 ] = submodel.x_initial
 
             self.a: NDArray = xp.concatenate(data, axis=1)
+            
+        # collect constraints from submodels after dimensions are clear
+        self.has_constraints = False
+        self.constraints_D = None
+        self.constraints_e = None
+        
+        for i, submodel in enumerate(self.submodels):
+            if submodel.has_constraints:
+                # need to be padding with zeros to match the full latent parameter dimension                
+                t = xp.zeros((submodel.constraints_D.shape[0], self.n_latent_parameters))
+                t[:, self.latent_parameters_idx[i] : self.latent_parameters_idx[i + 1]] = submodel.constraints_D
+                
+                if self.constraints_D is None:
+                    self.constraints_D = t
+                    self.constraints_e = submodel.constraints_e
+                else:
+                    self.constraints_D = xp.concatenate([self.constraints_D, t], axis=0)
+                    self.constraints_e = xp.concatenate([self.constraints_e, submodel.constraints_e], axis=0)
+
+        if self.constraints_D is not None:
+            self.has_constraints = True
 
         self.permutation_latent_variables = xp.arange(0, self.n_latent_parameters, 1)
         self.inverse_permutation_latent_variables = xp.arange(
@@ -391,7 +412,7 @@ class Model(ABC):
         self.theta_keys: NDArray = theta_keys
 
         self.n_hyperparameters = self.theta_external.size
-
+        
         # --- Recurrent variables
         self.Q_prior = None
         self.Q_prior_data_mapping = [0]

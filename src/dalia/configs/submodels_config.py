@@ -17,12 +17,16 @@ from dalia.configs.priorhyperparameters_config import (
     parse_config as parse_priorhyperparameters_config,
 )
 
+
 class SubModelConfig(BaseModel, ABC):
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     # Input folder for this specific submodel
     input_dir: str = None
     type: Literal["spatio_temporal", "spatial", "regression", "brainiac", "ar1"] = None
+    has_constraints: bool = False
+    constraints_D: ArrayLike = None
+    constraints_e: ArrayLike = None
 
     @abstractmethod
     def read_hyperparameters(self) -> tuple[ArrayLike, list]: ...
@@ -48,17 +52,16 @@ class AR1SubModelConfig(SubModelConfig):
     ## either define tau or sigma2
     tau: float = None  # Precision
     # sigma2: float = None  # Marginal variance
-    
-    
+
     ph_tau: PriorHyperparametersConfig = None
     # ph_sigma2: PriorHyperparametersConfig = None
 
     def read_hyperparameters(self):
 
         # input of phi is in (0,1), rescale to -/+ INF
-        #self.phi_scaled = scaled_logit(self.phi, direction="forward")
+        # self.phi_scaled = scaled_logit(self.phi, direction="forward")
         theta = xp.array([self.phi, self.tau])
-        #theta_internal = xp.array([self.phi, self.tau])
+        # theta_internal = xp.array([self.phi, self.tau])
         theta_keys = ["phi", "tau"]
 
         return theta, theta_keys
@@ -120,7 +123,6 @@ class BrainiacSubModelConfig(SubModelConfig):
         theta_keys = ["h2"] + [f"alpha_{i}" for i in range(len(self.alpha))]
 
         return theta, theta_keys
-
 
 
 def parse_config(config: dict | str) -> SubModelConfig:

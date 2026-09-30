@@ -22,8 +22,16 @@ class SubModel(ABC):
         self.input_path = Path(config.input_dir)
         self.submodel_type = config.type
 
-        # --- Load design matrix
+        # --- by default, not intrinsic 
+        # handle how intrinsic models with constraints get handled later
+        self.intrinsic: bool = False
+        # --- model constraints come from config
+        self.has_constraints: bool = config.has_constraints
+        
+        self.constraints_D = None
+        self.constraints_e = None
 
+        # --- Load design matrix
         try:
             a: spmatrix = load_npz(self.input_path.joinpath("a.npz"))
             self.a = sp.sparse.csc_matrix(a)
@@ -51,6 +59,36 @@ class SubModel(ABC):
                 self.x_initial: NDArray = xp.array(x_initial)
         except FileNotFoundError:
             self.x_initial: NDArray = xp.zeros((self.a.shape[1]), dtype=float)
+
+        # --- Initialize constraints if they exist
+        # TODO: fix cupy compatibility later
+        if self.has_constraints:
+            try:
+                # first check if constraints passed through config
+                if self.config.constraints_D is not None and self.config.constraints_e is not None:
+                    self.constraints_D = self.config.constraints_D
+                    self.constraints_e = self.config.constraints_e
+                else: 
+                    self.constraints_D: NDArray = np.load(self.input_path.joinpath("constraints_D.npy"))
+                    self.constraints_e: NDArray = np.load(self.input_path.joinpath("constraints_e.npy"))
+                                        
+            except FileNotFoundError:
+                raise FileNotFoundError(
+                    "Constraints specified in config but constraint files not found."
+                )
+                
+            # check dimensions match 
+            if self.constraints_D.shape[1] != self.n_latent_parameters:
+                raise ValueError(
+                    f"Number of columns in constraints_D ({self.constraints_D.shape[1]}) "
+                    f"does not match number of latent parameters ({self.n_latent_parameters})."
+                )
+            if self.constraints_D.shape[0] != self.constraints_e.shape[0]:
+                raise ValueError(
+                    f"Number of rows in constraints_D ({self.constraints_D.shape[0]}) "
+                    f"does not match number of rows in constraints_e ({self.constraints_e.shape[0]})."
+                )
+
 
 
     @abstractmethod

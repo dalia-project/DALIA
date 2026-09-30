@@ -1426,7 +1426,7 @@ class DALIA:
         x : NDArray
             Latent parameters.
         x_mean : NDArray
-            Mean of the latent parameters.
+            Mean of the latent parameters (constraint if constraints exist)
 
         Returns
         -------
@@ -1465,7 +1465,72 @@ class DALIA:
             else:
                 quadratic_form = (x - x_mean).T @ Q_conditional @ (x - x_mean)
 
+        # account for constraints if they exist
+        
+        
         # Compute the log conditional
         log_conditional = 0.5 * logdet_Q_conditional - 0.5 * quadratic_form
 
         return log_conditional
+    
+    def _compute_DQinv(self, Q: NDArray, sparsity: str) -> NDArray:
+        """Compute D Qinv D^T for the constraint log density update.
+
+        Parameters
+        ----------
+        Q : NDArray
+            Precision matrix of the latent parameters.
+
+        Returns
+        -------
+        DQinvDT : NDArray
+            The matrix D Qinv D^T.
+        """
+        D = self.model.constraints_D
+        V = self.solver.solve(D.T, sparsity=sparsity)
+        return V
+    
+    # V depends on precision matrix Q (either prior or conditional)
+    def _compute_constraint_mean(self, x: NDArray, V: NDArray) -> NDArray:
+        """Compute the mean of the constrained latent parameters.
+
+        Parameters
+        ----------
+        x : NDArray
+            current mean of the latent parameters.
+
+        Returns
+        -------
+        x_constr : NDArray
+            Mean of the constrained latent parameters after applying the constraints.
+        """
+
+        if self.model.has_constraints is False:
+            return x
+        
+        D = self.model.constraints_D
+        e = self.model.constraints_e
+
+        W = D @ V
+        # cheap dense solve
+        U = xp.linalg.solve(W, V.T)
+        c = D @ x - e
+        x_constr = x - U.T @ c
+
+        return x_constr
+    
+    def _compute_constraint_log_density_update(self, Q_conditional: NDArray, x: NDArray, x_mean: NDArray) -> float:
+        if self.model.has_constraints is False:
+            return 0.0
+
+        log_p_Ax_x = - 0.5 * xp.slogdet(self.model.constraints_D @ self.model.constraints_D.T)[1]
+        
+        Dx = self.model.constraints_D @ (x_mean - x)
+        
+        # need W = A Qinv A^T 
+        # 
+        log_p_Ax = -
+        Dx = 
+        
+
+        return log_p_Ax_x
