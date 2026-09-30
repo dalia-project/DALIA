@@ -93,20 +93,3 @@ if __name__ == "__main__":
     print("noise: ", noise[:10])
     y = eta + noise
     np.save(BASE_DIR / "y.npy", y)
-
-    print("y: ", y[:10])
-
-    Qprior = sp.block_diag([Q, sp.csr_matrix([[0.001]])])
-
-    a = sp.hstack([a_ar1, a_regression]) # a_ar1 #
-    Qcond = Qprior + obs_noise_prec * a.T @ a
-    print("Qcond: \n", Qcond.toarray()[:6,:6])
-
-    b = obs_noise_prec * a.T @ y
-    print("b: ", b[:10])
-    # x_est = np.linalg.solve(Qcond.toarray(), b)
-    x_est = spsolve(csc_matrix(Qcond), b)
-    print("norm(x - x_est): ", np.linalg.norm(x - x_est))
-
-    print("norm(eta - eta_est): ", np.linalg.norm(a @ x - a @ x_est))
-    print("normalized norm(eta - eta_est): ", np.linalg.norm(a @ x - a @ x_est) / np.linalg.norm(a @ x))
