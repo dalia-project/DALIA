@@ -206,7 +206,7 @@ if __name__ == "__main__":
             "max_iter": args.max_iter,
             "gtol": 1e-3,
             "disp": True,
-            "maxcor": len(coreg_model.theta),
+            "maxcor": len(coreg_model.theta_external),
         },
         "f_reduction_tol": 1e-3,
         "theta_reduction_tol": 1e-4,
@@ -228,7 +228,7 @@ if __name__ == "__main__":
 
     print_msg("results['theta']: ", results["theta"])
 
-    print_msg("cov_theta: \n", results["cov_theta"])
+    print_msg("Internal Covariance of theta:\n", results["cov_theta_internal"])
     print_msg("mean of the fixed effects: ", results["x"][-nb:])
     print_msg(
         "marginal variances of the fixed effects: ",
@@ -243,7 +243,7 @@ if __name__ == "__main__":
 
     print_msg(
         "Norm (theta - theta_ref):        ",
-        f"{np.linalg.norm(results['theta'] - get_host(theta_ref)):.4e}",
+        f"{np.linalg.norm(get_host(results['theta']) - get_host(theta_ref)):.4e}",
     )
 
     x_ref = np.load(f"{BASE_DIR}/inputs_nv{nv}_ns{ns}_nt{nt}_nb{nb}/reference_outputs/x_ref.npy")
@@ -254,7 +254,7 @@ if __name__ == "__main__":
     # Compare latent parameters
     print_msg(
         "Norm (x - x_ref):                ",
-        f"{np.linalg.norm(results['x'] - get_host(x_ref)):.4e}",
+        f"{np.linalg.norm(get_host(results['x']) - get_host(x_ref)):.4e}",
     )
 
     # Compare marginal variances of latent parameters
@@ -265,7 +265,7 @@ if __name__ == "__main__":
     Qinv_ref = xp.linalg.inv(Qconditional.toarray())
     print_msg(
         "Norm (marg var latent - ref):    ",
-        f"{np.linalg.norm(var_latent_params - xp.diag(Qinv_ref)):.4e}",
+        f"{xp.linalg.norm(var_latent_params - xp.diag(Qinv_ref)):.4e}",
     )
 
     # Compare marginal variances of observations

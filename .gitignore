@@ -171,6 +171,19 @@ runs_sc25/*
 settings.json
 *.out
 
+# data files that can easily be generated
+examples/brainiac/**/*.npy
+examples/brainiac/**/*.npz
+
+examples/g_ar1/**/*.npy
+examples/g_ar1/**/*.npz
+
+examples/p_ar1/**/*.npy
+examples/p_ar1/**/*.npz
+
+examples/g_ar2/**/*.npy
+examples/g_ar2/**/*.npz
+
 # Profiler outputs
 *.nsys-rep
 *.qdstrm

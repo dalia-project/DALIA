@@ -7,22 +7,32 @@ name = "DALIA"
 authors = [
     { name = "Lisa Gaedke-Merzhaeuser", email = "lisa.gaedke.merzhaeuser@usi.ch" },
     { name = "Vincent Maillou", email = "vmaillou@iis.ee.ethz.ch" },
+    { name = "Alexandros Nikolaos Ziogas", email = "alziogas@iis.ee.ethz.ch" },
 ]
-description = "Python implementation of the method of integrated nested Laplace approximations (INLA)"
+
+description = "Python implementation of the method of integrated nested Laplace approximations (INLA), putting the accent on portability, modularity and performance."
+
 license = {text = "BSD-3-Clause"}
+
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: BSD License",
     "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering",
 ]
+
 keywords = ["INLA", "Bayesian", "statistics"]
+
 dynamic = ["version"]
-requires-python = ">=3.11"
+
+requires-python = ">=3.13"
+
 dependencies = [
     "numpy>=1.23.2",
     "scipy",
-    "matplotlib",
+    "numba",
     "pydantic",
+    "matplotlib",
     "pytest",
     "pytest-cov",
     "pytest-mpi",
@@ -33,14 +43,23 @@ dependencies = [
     "ruff",
     "just",
     "pre-commit",
+    "tabulate",
+    "psutil",
 ]
 [project.optional-dependencies]
-mpi4py = ["mpi4py"]
-cupy = ["cupy==13.2.0"]
-serinv = ["serinv @ git+https://github.com/vincent-maillou/serinv"]
+gpu = [
+    "cupy==13.2.0",
+]
+multiprocessing = [
+    "mpi4py",
+]
+solvers = [
+    "serinv @ git+https://github.com/vincent-maillou/serinv",
+    "sTiles",
+]
 
 [project.urls]
-Code = "https://github.com/lisa-gm/DALIA"
+Code = "https://github.com/dalia-project/DALIA"
 
 [tool.setuptools.dynamic]
 version = { attr = "dalia.__about__.__version__" }

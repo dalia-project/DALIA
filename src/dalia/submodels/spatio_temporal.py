@@ -1,15 +1,16 @@
 # Copyright 2024-2025 DALIA authors. All rights reserved.
 
 import math
-from tabulate import tabulate
 
 import numpy as np
 from scipy.sparse import csc_matrix, load_npz, spmatrix
+from tabulate import tabulate
 
 from dalia import sp, xp
 from dalia.configs.submodels_config import SpatioTemporalSubModelConfig
 from dalia.core.submodel import SubModel
 from dalia.utils import add_str_header
+
 
 class SpatioTemporalSubModel(SubModel):
     """Fit a spatio-temporal model."""
@@ -268,9 +269,9 @@ class SpatioTemporalSubModel(SubModel):
 
         # --- Make the Submodel table ---
         values = [
-            ["Number of Spatial Nodes", self.ns], 
-            ["Number of Temporal Nodes", self.nt], 
-            ["Manifold", self.manifold.capitalize()], 
+            ["Number of Spatial Nodes", self.ns],
+            ["Number of Temporal Nodes", self.nt],
+            ["Manifold", self.manifold.capitalize()],
             ["Spatial Range (r_s)", f"{self.config.r_s:.3f}"],
             ["Temporal Range (r_t)", f"{self.config.r_t:.3f}"],
             ["Spatio-temporal Variation (sigma_st)", f"{self.sigma_st:.3f}"],
@@ -280,7 +281,7 @@ class SpatioTemporalSubModel(SubModel):
             tablefmt="fancy_grid",
             colalign=("left", "center"),
         )
-        
+
         # Add the header title
         submodel_table = add_str_header(
             title=self.submodel_type.replace("_", " ").title(),
@@ -289,4 +290,3 @@ class SpatioTemporalSubModel(SubModel):
         str_representation += submodel_table
 
         return str_representation
-

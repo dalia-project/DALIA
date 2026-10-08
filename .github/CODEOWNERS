@@ -1,0 +1,10 @@
+# Global rules (global owner) apply to all files in the repository.
+* @lisa-gm @vincent-maillou
+
+# Specific rules for the statistics-related files.
+/src/dalia/likelihoods/ @lisa-gm
+/src/dalia/prior_hyperparameters/ @lisa-gm
+
+# Specific rules to the computation-related files.
+/src/dalia/solvers/ @vincent-maillou
+/src/dalia/kernels/ @vincent-maillou

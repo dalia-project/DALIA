@@ -29,7 +29,7 @@ class GaussianLikelihood(Likelihood):
 
         Evaluate Gaussian log-likelihood for a given set of observations, latent parameters, and design matrix, where
         the observations are assumed to be identically and independently distributed given eta (=A*x). Leading to:
-        log (p(y|eta)) = -0.5 * n * log(2 * pi) - 0.5 * n * theta_observations - 0.5 * exp(theta_observations) * (y - eta)^T * (y - eta)
+        log (p(y|eta)) = -0.5 * n * log(2 * pi) - 0.5 * n * log(theta) - 0.5 * theta * (y - eta)^T * (y - eta)
         where the constant in front of the likelihood is omitted.
 
         Parameters
@@ -40,7 +40,7 @@ class GaussianLikelihood(Likelihood):
             Vector of the observations.
         kwargs :
             theta : float
-                Specific parameter for the likelihood calculation.
+                precision parameter for the likelihood calculation. theta > 0.
 
         Returns
         -------
@@ -52,11 +52,16 @@ class GaussianLikelihood(Likelihood):
         if theta is None:
             raise ValueError("theta must be provided to evaluate gaussian likelihood.")
 
+        if theta <= 0:
+            raise ValueError(f"theta must be positive, got {theta}")
+
         yEta = eta - y
         # print("xp.exp(theta) in lh:", xp.exp(theta))
 
         likelihood: float = (
-            0.5 * theta * self.n_observations - 0.5 * xp.exp(theta) * yEta.T @ yEta
+            -0.5 * self.n_observations * xp.log(2 * xp.pi)
+            + 0.5 * xp.log(theta) * self.n_observations
+            - 0.5 * theta * yEta.T @ yEta
         )
 
         return likelihood
@@ -77,7 +82,7 @@ class GaussianLikelihood(Likelihood):
             Vector of the observations.
         kwargs :
             theta : float
-                Specific parameter for the likelihood calculation.
+                precision parameter for the likelihood calculation. theta > 0.
 
         Returns
         -------
@@ -91,7 +96,10 @@ class GaussianLikelihood(Likelihood):
                 "theta must be provided to evaluate gradient of gaussian likelihood."
             )
 
-        gradient_likelihood: NDArray = -xp.exp(theta) * (eta - y)
+        if theta <= 0:
+            raise ValueError(f"theta must be positive, got {theta}")
+
+        gradient_likelihood: NDArray = -theta * (eta - y)
 
         return gradient_likelihood
 
@@ -121,11 +129,11 @@ class GaussianLikelihood(Likelihood):
             raise ValueError(
                 "theta must be provided to evaluate gradient of gaussian likelihood."
             )
+        if theta <= 0:
+            raise ValueError(f"theta must be positive, got {theta}")
 
         # print("hessian lh: xp.exp(theta)", xp.exp(theta))
 
-        hessian_likelihood: ArrayLike = -xp.exp(theta) * sp.sparse.eye(
-            self.n_observations
-        )
+        hessian_likelihood: ArrayLike = -theta * sp.sparse.eye(self.n_observations)
 
         return hessian_likelihood

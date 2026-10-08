@@ -1,7 +1,7 @@
 # Copyright 2024-2025 DALIA authors. All rights reserved.
 
-from warnings import warn
 import time
+from warnings import warn
 
 from dalia import NDArray, sp, xp, xp_host
 from dalia.configs.dalia_config import SolverConfig
@@ -13,7 +13,6 @@ try:
     from serinv.algs import pobtaf, pobtas, pobtasi, pobtf, pobts, pobtsi
 except ImportError as e:
     warn(f"The serinv package is required to use the SerinvSolver: {e}")
-
 
 
 class SerinvSolver(Solver):
@@ -66,82 +65,118 @@ class SerinvSolver(Solver):
         # Solver Metrics
         self.total_bytes: int = 0
 
-        self.t_cholesky = 0.0
+        self.t_factorize = 0.0
         self.t_solve = 0.0
 
-    def cholesky(
+    def factorize(
         self,
         A: sp.sparse.spmatrix,
         sparsity: str,
     ) -> None:
-        """Compute Cholesky factor of input matrix."""
-        self._spmatrix_to_structured(A, sparsity)
+        """Compute the decomposition of a matrix.
 
-        tic = time.perf_counter()
+        Parameters
+        ----------
+        A : sp.sparse.spmatrix
+            The input matrix to decompose.
+        sparsity : str
+            The sparsity pattern of the matrix. Either 'bt' or 'bta'.
+
+        Returns
+        -------
+        None
+
+        Note:
+        -----
+        Uses the Cholesky decomposition.
+        """
         synchronize_gpu()
+        tic = time.perf_counter()
+
+        self._spmatrix_to_structured(A, sparsity)
         if sparsity == "bta":
-                pobtaf(
-                    self.A_diagonal_blocks,
-                    self.A_lower_diagonal_blocks,
-                    self.A_arrow_bottom_blocks,
-                    self.A_arrow_tip_block,
-                )
+            pobtaf(
+                self.A_diagonal_blocks,
+                self.A_lower_diagonal_blocks,
+                self.A_arrow_bottom_blocks,
+                self.A_arrow_tip_block,
+            )
         elif sparsity == "bt":
-                pobtf(
-                    self.A_diagonal_blocks,
-                    self.A_lower_diagonal_blocks,
-                )
+            pobtf(
+                self.A_diagonal_blocks,
+                self.A_lower_diagonal_blocks,
+            )
         else:
             raise ValueError(
                 f"Unknown sparsity pattern: {sparsity}. Use 'bt' or 'bta'."
             )
+
         synchronize_gpu()
         toc = time.perf_counter()
-        self.t_cholesky += toc - tic
+        self.t_factorize += toc - tic
 
     def solve(
         self,
         rhs: NDArray,
         sparsity: str,
     ) -> NDArray:
-        """Solve linear system using Cholesky factor."""
+        """Solve linear system using Cholesky factor.
 
-        tic = time.perf_counter()
+        Parameters
+        ----------
+        rhs : NDArray
+            Right-hand side of the linear system.
+        sparsity : str
+            The sparsity pattern of the matrix. Either 'bt' or 'bta'.
+
+        Returns
+        -------
+        NDArray
+            Solution of the linear system.
+
+        Raises
+        ------
+        ValueError
+            If the sparsity pattern is unknown.
+        """
         synchronize_gpu()
+        tic = time.perf_counter()
+
         if sparsity == "bta":
-                pobtas(
-                    self.A_diagonal_blocks,
-                    self.A_lower_diagonal_blocks,
-                    self.A_arrow_bottom_blocks,
-                    self.A_arrow_tip_block,
-                    rhs,
-                    trans="N",
-                )
-                pobtas(
-                    self.A_diagonal_blocks,
-                    self.A_lower_diagonal_blocks,
-                    self.A_arrow_bottom_blocks,
-                    self.A_arrow_tip_block,
-                    rhs,
-                    trans="C",
-                )
+            pobtas(
+                self.A_diagonal_blocks,
+                self.A_lower_diagonal_blocks,
+                self.A_arrow_bottom_blocks,
+                self.A_arrow_tip_block,
+                rhs,
+                trans="N",
+            )
+            pobtas(
+                self.A_diagonal_blocks,
+                self.A_lower_diagonal_blocks,
+                self.A_arrow_bottom_blocks,
+                self.A_arrow_tip_block,
+                rhs,
+                trans="C",
+            )
         elif sparsity == "bt":
-                pobts(
-                    self.A_diagonal_blocks,
-                    self.A_lower_diagonal_blocks,
-                    rhs,
-                    trans="N",
-                )
-                pobts(
-                    self.A_diagonal_blocks,
-                    self.A_lower_diagonal_blocks,
-                    rhs,
-                    trans="C",
-                )
+            pobts(
+                self.A_diagonal_blocks,
+                self.A_lower_diagonal_blocks,
+                rhs,
+                trans="N",
+            )
+            pobts(
+                self.A_diagonal_blocks,
+                self.A_lower_diagonal_blocks,
+                rhs,
+                trans="C",
+            )
         else:
             raise ValueError(
                 f"Unknown sparsity pattern: {sparsity}. Use 'bt' or 'bta'."
             )
+
         synchronize_gpu()
         toc = time.perf_counter()
         self.t_solve += toc - tic
@@ -152,7 +187,18 @@ class SerinvSolver(Solver):
         self,
         sparsity: str,
     ) -> float:
-        """Compute logdet of input matrix using Cholesky factor."""
+        """Compute the log determinant of the matrix.
+
+        Parameters
+        ----------
+        sparsity : str
+            The sparsity pattern of the matrix. Either 'bt' or 'bta'.
+
+        Returns
+        -------
+        float
+            The log determinant of the matrix.
+        """
         logdet: float = 0.0
         for i in range(self.n_diag_blocks):
             logdet += xp.sum(xp.log(self.A_diagonal_blocks[i].diagonal()))
@@ -197,8 +243,10 @@ class SerinvSolver(Solver):
         """Map sp.spmatrix to BT or BTA."""
         self.A_diagonal_blocks[:] = 0.0
         self.A_lower_diagonal_blocks[:] = 0.0
-        self.A_arrow_bottom_blocks[:] = 0.0
-        self.A_arrow_tip_block[:] = 0.0
+        if self.A_arrow_bottom_blocks is not None:
+            self.A_arrow_bottom_blocks[:] = 0.0
+        if self.A_arrow_tip_block is not None:
+            self.A_arrow_tip_block[:] = 0.0
 
         if xp.__name__ == "cupy":
             if sparsity == "bta":
@@ -245,9 +293,9 @@ class SerinvSolver(Solver):
                 block_slice = A_csc[
                     -self.arrowhead_blocksize :, -self.arrowhead_blocksize :
                 ].tocoo()
-                self.A_arrow_tip_block[
-                    block_slice.row, block_slice.col
-                ] = block_slice.data
+                self.A_arrow_tip_block[block_slice.row, block_slice.col] = (
+                    block_slice.data
+                )
 
     def _spmatrix_to_bta(
         self,
@@ -471,8 +519,36 @@ class SerinvSolver(Solver):
         self,
         A: sp.sparse.spmatrix,
         sparsity: str,
+        symmetrize: bool = True,
     ) -> sp.sparse.spmatrix:
-        """Map BT or BTA matrix to sp.spmatrix using sparsity pattern provided in A."""
+        """Map a BT or BTA structured matrix to a sparse `csc` format given the sparsity pattern.
+
+        Parameters
+        ----------
+        A : sp.sparse.spmatrix
+            Input matrix in sparse format.
+        sparsity : str
+            The sparsity pattern of the matrix. Either 'bt' or 'bta'.
+        symmetrize : bool, optional
+            Whether to symmetrize the output matrix, by default True.
+
+        Returns
+        -------
+        sp.sparse.spmatrix
+            The output matrix in sparse format.
+
+        Notes
+        -----
+        By default this function symmetrize the matrix as it is mostly use in DALIA on the selected
+        inverse of SPD matrices. Because of further matrix operations on these matrices, we symmetrize
+        them to avoid numerical asymmetries.
+
+        Raises
+        ------
+        ValueError
+            If the sparsity pattern is unknown.
+
+        """
 
         # A is assumed to be symmetric, only use lower triangular part
         B = sp.sparse.csc_matrix(sp.sparse.tril(sp.sparse.csc_matrix(A)))
@@ -532,10 +608,10 @@ class SerinvSolver(Solver):
 
         B_out = sp.sparse.coo_matrix((data, (rows, cols)), shape=B.shape).tocsc()
 
-        # Symmetrize B
-        B_out = B_out + sp.sparse.tril(B_out, k=-1).T
-
-        return B_out
+        if symmetrize:
+            return B_out + sp.sparse.tril(B_out, k=-1).T
+        else:
+            return B_out
 
     def get_solver_memory(self) -> int:
         """Return the memory used by the solver in number of bytes"""

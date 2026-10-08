@@ -47,25 +47,28 @@ if __name__ == "__main__":
     likelihood_dict = {
         "type": "gaussian",
         "prec_o": 4,
-        "prior_hyperparameters": {
-            "type": "penalized_complexity",
-            "alpha": 0.01,
-            "u": 5,
-        },
+        # "prior_hyperparameters": {
+        #     "type": "penalized_complexity",
+        #     "alpha": 0.01,
+        #     "u": 5,
+        # },
+        "prior_hyperparameters": {"type": "gamma", "alpha": 2.0, "beta": 2.0},
     }
     model = Model(
         submodels=[spatial, regression],
         likelihood_config=likelihood_config.parse_config(likelihood_dict),
     )
 
+    print_msg(model)
+
     # Configurations of DALIA
     dalia_dict = {
-        "solver": {"type": "dense"},
+        "solver": {"type": "scipy"},
         "minimize": {
             "max_iter": args.max_iter,
             "gtol": 1e-3,
             "disp": True,
-            "maxcor": len(model.theta),
+            "maxcor": len(model.theta_external),
         },
         "f_reduction_tol": 1e-3,
         "theta_reduction_tol": 1e-4,
@@ -84,10 +87,10 @@ if __name__ == "__main__":
 
     print_msg("\n--- Results ---")
     print_msg("Theta values:\n", results["theta"])
-    print_msg("Covariance of theta:\n", results["cov_theta"])
+    print_msg("Internal Covariance of theta:\n", results["cov_theta_internal"])
     print_msg(
         "Mean of the fixed effects:\n",
-        results["x"][-model.submodels[-1].n_fixed_effects :],
+        get_host(results["x"][-model.submodels[-1].n_fixed_effects :]),
     )
 
     print_msg("\n--- Comparisons ---")
@@ -95,14 +98,14 @@ if __name__ == "__main__":
     theta_ref = np.load(f"{BASE_DIR}/reference_outputs/theta_ref.npy")
     print_msg(
         "Norm (theta - theta_ref):        ",
-        f"{np.linalg.norm(results['theta'] - get_host(theta_ref)):.4e}",
+        f"{np.linalg.norm(get_host(results['theta_internal']) - get_host(theta_ref)):.4e}",
     )
 
     # Compare latent parameters
     x_ref = np.load(f"{BASE_DIR}/reference_outputs/x_ref.npy")
     print_msg(
         "Norm (x - x_ref):                ",
-        f"{np.linalg.norm(results['x'] - get_host(x_ref)):.4e}",
+        f"{np.linalg.norm(get_host(results['x']) - get_host(x_ref)):.4e}",
     )
 
     # Compare marginal variances of latent parameters

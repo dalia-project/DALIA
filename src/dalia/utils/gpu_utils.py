@@ -1,6 +1,9 @@
 # Copyright 2024-2025 DALIA authors. All rights reserved.
 
 import inspect
+import os
+
+import psutil
 
 from dalia import NDArray, backend_flags, xp
 
@@ -100,7 +103,7 @@ def get_device(arr: NDArray) -> NDArray:
 
 
 def format_size(size_bytes):
-    for unit in ['B', 'KB', 'MB', 'GB']:
+    for unit in ["B", "KB", "MB", "GB"]:
         if size_bytes < 1024:
             return f"{size_bytes:.2f} {unit}"
         size_bytes /= 1024
@@ -110,34 +113,41 @@ def format_size(size_bytes):
 # query memory usage GPU and free unused memory
 def free_unused_gpu_memory() -> int:
     """Free unused memory on the GPU."""
-    
+
     if backend_flags["cupy_avail"]:
         mempool = cp.get_default_memory_pool()
-            
-        mempool.free_all_blocks()    
+
+        mempool.free_all_blocks()
 
         return mempool.total_bytes()
-    
-    else: 
+
+    else:
         # return dummy value for numpy
         return 1
 
+
 def memory_report() -> int:
-    """Free unused memory on the GPU."""
+    """Report the current memory usage.
+
+    Returns
+    -------
+    used_memory : int
+        The current memory usage in bytes.
+    total_memory : int
+        The total memory available in bytes.
+    """
     used_memory = 0
     total_memory = 0
 
     if backend_flags["cupy_avail"] and backend_flags["array_module"] == "cupy":
-        # Get GPU memory usage
+        # Get (GPU) memory usage
         mempool = cp.get_default_memory_pool()
         used_memory = mempool.used_bytes()
         total_memory = mempool.total_bytes()
     else:
-        # TODO: Implement on the host
-        used_memory = -1
-        total_memory = -1
+        # Get (CPU) memory usage
+        pid = os.getpid()
+        used_memory = psutil.Process(pid).memory_info().rss
+        total_memory = psutil.virtual_memory().total
 
     return used_memory, total_memory
-
-
-

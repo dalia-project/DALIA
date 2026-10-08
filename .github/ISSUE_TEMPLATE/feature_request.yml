@@ -1,0 +1,35 @@
+name: "Feature Request"
+description: Suggest a new feature or change in functionality
+labels: [new feature]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        You would like to request a new feature or change in functionality? After
+        checking the open issues, please explain your idea below. 
+
+  - type: textarea
+    id: proposed_feature
+    attributes:
+      label: Proposed feature or change
+      description: Please provide a clear description of your suggestion.
+    validations:
+      required: true
+
+  - type: textarea
+    id: how_to_implement
+    attributes:
+      label: How to implement
+      description: |
+        Please provide a clear description of how you would implement 
+        this feature or change.
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional context
+      description: You can add any other relevant context here.
+    validations:
+      required: false

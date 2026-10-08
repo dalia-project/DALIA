@@ -1,13 +1,11 @@
 # Copyright 2024-2025 DALIA authors. All rights reserved.
+import numpy as np
 from tabulate import tabulate
 
-from dalia import sp, NDArray
+from dalia import NDArray, sp, xp
 from dalia.configs.submodels_config import BrainiacSubModelConfig
 from dalia.core.submodel import SubModel
-from dalia.utils import scaled_logit, add_str_header
-
-import numpy as np
-from dalia import sp, xp
+from dalia.utils import add_str_header, scaled_logit
 
 
 class BrainiacSubModel(SubModel):
@@ -52,25 +50,13 @@ class BrainiacSubModel(SubModel):
             self.z.shape[0] == self.a.shape[1]
         ), f"Numbers rows in z ({self.z.shape[0]}) must match number of columns in a ({self.a.shape[1]})."
 
-    def rescale_hyperparameters_to_interpret(self, **kwargs) -> NDArray:
-
-        h2_scaled = kwargs.get("h2")
-        # rescale h2 to (0,1) as it's currently between -INF:+INF
-        h2 = scaled_logit(h2_scaled, direction="backward")
-
-        theta_interpret = np.array([h2, *kwargs["alpha"]])
-        print("theta_interpret: ", theta_interpret)
-        return theta_interpret
 
     def construct_Q_prior(self, **kwargs) -> sp.sparse.coo_matrix:
         """Construct the prior precision matrix."""
         # Extract all alpha_x values and put them into an array
         alpha_keys = sorted([key for key in kwargs if key.startswith("alpha_")])
         alpha = xp.array([kwargs[key] for key in alpha_keys])
-        h2_scaled = kwargs.get("h2")
-
-        # rescale h2 to (0,1) as it's currently between -INF:+INF
-        h2 = scaled_logit(h2_scaled, direction="backward")
+        h2 = kwargs.get("h2")
 
         # \Phi = 1 / \sum_k=1^B exp(Z^k \alpha) * diag(exp(Z_1 \alpha), exp(Z_2 \alpha), ... )
         exp_Z_alpha = xp.exp(self.z @ alpha)
@@ -86,20 +72,16 @@ class BrainiacSubModel(SubModel):
 
         return Q_prior.tocoo()
 
-    def evaluate_likelihood(
-        self, eta: NDArray, y: NDArray, **kwargs
-    ) -> float:
+    def evaluate_likelihood(self, eta: NDArray, y: NDArray, **kwargs) -> float:
         n_observations = y.shape[0]
 
-        h2_scaled = kwargs.get("h2")
-        # rescale h2 to (0,1) as it's currently between -INF:+INF
-        h2 = scaled_logit(h2_scaled, direction="backward")
-        if(h2 == 1):
+        h2 = kwargs.get("h2")
+        if h2 == 1:
             raise ValueError("h2 is 1. Will lead to division by zero.")
 
         yEta = y - eta
         likelihood: float = (
-            0.5 *  - np.log(1 - h2)  * n_observations - 0.5 / (1 - h2) * yEta.T @ yEta
+            0.5 * -np.log(1 - h2) * n_observations - 0.5 / (1 - h2) * yEta.T @ yEta
         )
 
         return likelihood
@@ -107,11 +89,9 @@ class BrainiacSubModel(SubModel):
     def evaluate_gradient_likelihood(
         self, eta: NDArray, y: NDArray, **kwargs
     ) -> NDArray:
-        h2_scaled = kwargs.get("h2")
-        
-        # rescale h2 to (0,1) as it's currently between -INF:+INF
-        h2 = scaled_logit(h2_scaled, direction="backward")
-        if(h2 == 1):
+        h2 = kwargs.get("h2")
+
+        if h2 == 1:
             raise ValueError("h2 is 1. Will lead to division by zero.")
 
         gradient = -1 / (1 - h2) * (eta - y)
@@ -119,11 +99,9 @@ class BrainiacSubModel(SubModel):
         return gradient
 
     def evaluate_d_matrix(self, **kwargs) -> NDArray:
-        h2_scaled = kwargs.get("h2")
-        # rescale h2 to (0,1) as it's currently between -INF:+INF
-        h2 = scaled_logit(h2_scaled, direction="backward")
+        h2 = kwargs.get("h2")
 
-        if(h2 == 1):
+        if h2 == 1:
             raise ValueError("h2 is 1. Will lead to division by zero.")
         d_matrix = -1 / (1 - h2) * sp.sparse.eye(self.a.shape[0])
 
@@ -135,20 +113,20 @@ class BrainiacSubModel(SubModel):
 
         # --- Make the Submodel table ---
         values = [
-            ["h2", f"{self.config.h2:.3f}"], 
-            ["alpha", f"{self.config.alpha:.3f}"], 
+            ["h2", f"{self.config.h2:.3f}"],
+            ["alpha", [f"{a:.3f}" for a in self.config.alpha]],
         ]
         submodel_table = tabulate(
             values,
             tablefmt="fancy_grid",
             colalign=("left", "center"),
         )
-        
+
         # Add the header title
         submodel_table = add_str_header(
             title=self.submodel_type.replace("_", " ").title(),
             table=submodel_table,
         )
         str_representation += submodel_table
-        
+
         return str_representation

@@ -4,10 +4,11 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 
 import numpy as np
-from scipy.sparse import csc_matrix, load_npz, spmatrix
+from scipy.sparse import load_npz, spmatrix
 
 from dalia import NDArray, sp, xp
 from dalia.configs.submodels_config import SubModelConfig
+
 
 class SubModel(ABC):
     """Abstract core class for statistical models."""
@@ -22,11 +23,23 @@ class SubModel(ABC):
         self.submodel_type = config.type
 
         # --- Load design matrix
-        a: spmatrix = csc_matrix(load_npz(self.input_path.joinpath("a.npz")))
-        if xp == np:
-            self.a: sp.sparse.spmatrix = a
-        else:
-            self.a: sp.sparse.spmatrix = sp.sparse.csc_matrix(a)
+
+        try:
+            a: spmatrix = load_npz(self.input_path.joinpath("a.npz"))
+            self.a = sp.sparse.csc_matrix(a)
+        except FileNotFoundError:
+            # check if dense a matrix exists
+            try:
+                a: NDArray = np.load(self.input_path.joinpath("a.npy"))
+                if xp == np:
+                    self.a: NDArray = a
+                else:
+                    self.a: NDArray = xp.array(a)
+            except FileNotFoundError:
+                raise FileNotFoundError(
+                    "No design matrix found. Please provide a valid design matrix."
+                )
+
         self.n_latent_parameters: int = self.a.shape[1]
 
         # --- Load latent parameters vector
@@ -44,25 +57,18 @@ class SubModel(ABC):
     def construct_Q_prior(self, **kwargs) -> sp.sparse.coo_matrix:
         """Construct the prior precision matrix."""
         ...
-        
+
     def load_a_predict(self) -> sp.sparse.csc_matrix:
         """Load the design matrix for prediction."""
-        a_predict: sp.sparse.csc_matrix = csc_matrix(
+        self.a_predict: sp.sparse.csc_matrix = sp.sparse.csc_matrix(
             load_npz(self.input_path.joinpath("apr.npz"))
         )
-        
-        if xp == np:
-            self.a_predict: sp.sparse.spmatrix = a_predict
-        else:
-            self.a_predict: sp.sparse.spmatrix = sp.sparse.csc_matrix(a_predict)
-        
+
         # check that number of columns is the same as in a
         if self.a_predict.shape[1] != self.a.shape[1]:
             raise ValueError(
                 f"Number of columns in a_predict ({self.a_predict.shape[1]}) "
                 f"does not match number of columns in a ({self.a.shape[1]})."
             )
-        
-        return self.a_predict
 
-        
+        return self.a_predict

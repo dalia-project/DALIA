@@ -1,8 +1,19 @@
 # Copyright 2024-2025 DALIA authors. All rights reserved.
 
+import time
+
 from dalia import NDArray, sp, xp
 from dalia.configs.dalia_config import SolverConfig
 from dalia.core.solver import Solver
+from dalia.utils import synchronize_gpu
+
+
+## check if sparse matrix is diagonal
+def is_diagonal(A: NDArray) -> bool:
+    """Check if a matrix is diagonal."""
+
+    coo = A.tocoo()
+    return xp.all(coo.row == coo.col)
 
 
 class DenseSolver(Solver):
@@ -17,8 +28,6 @@ class DenseSolver(Solver):
         ----------
         config : SolverConfig
             Configuration object for the solver.
-        n : int
-            Size of the matrix.
 
         Returns
         -------
@@ -32,20 +41,82 @@ class DenseSolver(Solver):
         self.L: NDArray = xp.zeros((self.n, self.n), dtype=xp.float64)
         self.A_inv = None
 
-    def cholesky(self, A: NDArray, **kwargs) -> None:
-        self.L[:] = A.todense()
+        # Solver Metrics
+        self.t_factorize = 0.0
+        self.t_solve = 0.0
+
+    def factorize(self, A: NDArray, **kwargs) -> None:
+        """Compute the Cholesky decomposition of a matrix.
+
+        Parameters
+        ----------
+        A : NDArray
+            The input matrix to decompose.
+
+        Returns
+        -------
+        None
+
+        Note:
+        -----
+        Uses the Cholesky decomposition.
+        """
+        synchronize_gpu()
+        tic = time.perf_counter()
+
+        if sp.sparse.issparse(A):
+            # if A is diagonal, we can use the diagonal directly
+            if is_diagonal(A):
+                self.L[:] = 0
+                self.L[xp.arange(self.n), xp.arange(self.n)] = xp.sqrt(A.diagonal())
+                return
+
+            else:
+                self.L[:] = A.todense()
+        else:
+            self.L[:] = A
 
         self.L = xp.linalg.cholesky(self.L)
+
+        synchronize_gpu()
+        toc = time.perf_counter()
+        self.t_factorize += toc - tic
 
     def solve(
         self,
         rhs: NDArray,
         **kwargs,
     ) -> NDArray:
-        rhs[:] = sp.linalg.solve_triangular(self.L, rhs, lower=True, overwrite_b=True)
+        """Solve linear system using Cholesky factor.
+
+        Parameters
+        ----------
+        rhs : NDArray
+            Right-hand side of the linear system.
+
+        Returns
+        -------
+        NDArray
+            Solution of the linear system.
+        """
+        synchronize_gpu()
+        tic = time.perf_counter()
+
         rhs[:] = sp.linalg.solve_triangular(
-            self.L.T, rhs, lower=False, overwrite_b=True
+            self.L,
+            rhs,
+            lower=True,
         )
+        rhs[:] = sp.linalg.solve_triangular(
+            self.L,
+            rhs,
+            trans="T",
+            lower=True,
+        )
+
+        synchronize_gpu()
+        toc = time.perf_counter()
+        self.t_solve += toc - tic
 
         return rhs
 
@@ -53,14 +124,20 @@ class DenseSolver(Solver):
         self,
         **kwargs,
     ) -> float:
+        """Compute the log determinant of the matrix.
+
+        Returns
+        -------
+        float
+            The log determinant of the matrix.
+        """
         return 2 * xp.sum(xp.log(xp.diag(self.L)))
 
-    # TODO: optimize for memory??
     def selected_inversion(self, **kwargs) -> None:
-
-        L_inv = xp.eye(self.L.shape[0])
-        L_inv[:] = sp.linalg.solve_triangular(
-            self.L, L_inv, lower=True, overwrite_b=True
+        L_inv = sp.linalg.solve_triangular(
+            self.L,
+            xp.eye(self.L.shape[0]),
+            lower=True,
         )
         self.A_inv = L_inv.T @ L_inv
 

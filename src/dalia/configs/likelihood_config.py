@@ -7,7 +7,9 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from dalia.__init__ import ArrayLike, xp
-from dalia.configs.priorhyperparameters_config import PriorHyperparametersConfig
+from dalia.configs.priorhyperparameters_config import (
+    PriorHyperparametersConfig,
+)
 from dalia.configs.priorhyperparameters_config import (
     parse_config as parse_prior_hyperparameters_config,
 )

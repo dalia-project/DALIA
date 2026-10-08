@@ -6,6 +6,7 @@ from dalia.configs.submodels_config import RegressionSubModelConfig
 from dalia.core.submodel import SubModel
 from dalia.utils import add_str_header
 
+
 class RegressionSubModel(SubModel):
     """Fit a regression model."""
 
@@ -40,15 +41,15 @@ class RegressionSubModel(SubModel):
 
         # --- Make the Submodel table ---
         values = [
-            ["Number of Fixed Effects", self.n_fixed_effects], 
-            ["Prior Precision of Fixed Effects", self.fixed_effects_prior_precision], 
+            ["Number of Fixed Effects", self.n_fixed_effects],
+            ["Prior Precision of Fixed Effects", self.fixed_effects_prior_precision],
         ]
         submodel_table = tabulate(
             values,
             tablefmt="fancy_grid",
             colalign=("left", "center"),
         )
-        
+
         # Add the header title
         submodel_table = add_str_header(
             title=self.submodel_type.replace("_", " ").title(),

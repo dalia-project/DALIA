@@ -1,34 +1,34 @@
-import sys
 import os
-
-parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-sys.path.append(parent_dir)
+import sys
 
 import numpy as np
-import time
 
 from dalia import xp
 from dalia.configs import (
+    dalia_config,
     likelihood_config,
     models_config,
-    dalia_config,
     submodels_config,
 )
-from dalia.core.model import Model
 from dalia.core.dalia import DALIA
+from dalia.core.model import Model
 from dalia.models import CoregionalModel
 from dalia.submodels import RegressionSubModel, SpatioTemporalSubModel
 from dalia.utils import get_host, print_msg
-from examples_utils.parser_utils import parse_args
-from examples_utils.infos_utils import summarize_sparse_matrix
 
-SEED = 63
-np.random.seed(SEED)
+parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.append(parent_dir)
+from examples_utils.parser_utils import parse_args  # noqa: E402
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+SEED = 63
+xp.random.seed(SEED)
+
 if __name__ == "__main__":
-    print_msg("--- Example: Gaussian Coregional (3 variates) spatio-temporal model with regression ---")
+    print_msg(
+        "--- Example: Gaussian Coregional (3 variates) spatio-temporal model with regression ---"
+    )
     args = parse_args()
 
     nv = 3
@@ -40,10 +40,9 @@ if __name__ == "__main__":
     n = nv * ns * nt + nb
 
     theta_ref_file = (
-        f"{BASE_DIR}/inputs_nv{nv}_ns{ns}_nt{nt}_nb{nb}/reference_outputs/theta_interpretS_original_DALIA_perm_{dim_theta}_1.dat"
-        # f"{BASE_DIR}/inputs_nv{nv}_ns{ns}_nt{nt}_nb{nb}/reference_outputs/theta_interpretS_original_DALIA_perm_{dim_theta}_1.npy"
+        f"{BASE_DIR}/inputs_nv{nv}_ns{ns}_nt{nt}_nb{nb}/reference_outputs/theta_ref.npy"
     )
-    theta_ref = np.loadtxt(theta_ref_file)
+    theta_ref = np.load(theta_ref_file)
 
     perturbation = [
         0.18197867,
@@ -80,18 +79,18 @@ if __name__ == "__main__":
         "sigma_st": 0.0,
         "manifold": "plane",
         "ph_s": {
-            "type": "gaussian", 
-            "mean": theta_ref[0], 
+            "type": "gaussian",
+            "mean": theta_ref[0],
             "precision": 0.5,
         },
         "ph_t": {
-            "type": "gaussian", 
-            "mean": theta_ref[1], 
+            "type": "gaussian",
+            "mean": theta_ref[1],
             "precision": 0.5,
         },
         "ph_st": {
-            "type": "gaussian", 
-            "mean": 0.0, 
+            "type": "gaussian",
+            "mean": 0.0,
             "precision": 0.5,
         },
     }
@@ -136,18 +135,18 @@ if __name__ == "__main__":
         "sigma_st": 0.0,
         "manifold": "plane",
         "ph_s": {
-            "type": "gaussian", 
-            "mean": theta_ref[3], 
+            "type": "gaussian",
+            "mean": theta_ref[3],
             "precision": 0.5,
         },
         "ph_t": {
-            "type": "gaussian", 
-            "mean": theta_ref[4], 
+            "type": "gaussian",
+            "mean": theta_ref[4],
             "precision": 0.5,
         },
         "ph_st": {
-            "type": "gaussian", 
-            "mean": 0.0, 
+            "type": "gaussian",
+            "mean": 0.0,
             "precision": 0.5,
         },
     }
@@ -191,18 +190,18 @@ if __name__ == "__main__":
         "sigma_st": 0.0,
         "manifold": "plane",
         "ph_s": {
-            "type": "gaussian", 
-            "mean": theta_ref[6], 
+            "type": "gaussian",
+            "mean": theta_ref[6],
             "precision": 0.5,
         },
         "ph_t": {
-            "type": "gaussian", 
-            "mean": theta_ref[7], 
+            "type": "gaussian",
+            "mean": theta_ref[7],
             "precision": 0.5,
         },
         "ph_st": {
-            "type": "gaussian", 
-            "mean": 0.0, 
+            "type": "gaussian",
+            "mean": 0.0,
             "precision": 0.5,
         },
     }
@@ -258,7 +257,6 @@ if __name__ == "__main__":
     )
     print_msg(coreg_model)
 
-
     dalia_dict = {
         "solver": {
             "type": "serinv",
@@ -268,7 +266,7 @@ if __name__ == "__main__":
             "max_iter": args.max_iter,
             "gtol": 1e-3,
             "disp": True,
-            "maxcor": len(coreg_model.theta),
+            "maxcor": len(coreg_model.theta_external),
         },
         "f_reduction_tol": 1e-3,
         "theta_reduction_tol": 1e-4,
@@ -290,7 +288,7 @@ if __name__ == "__main__":
 
     print_msg("results['theta']: ", results["theta"])
 
-    print_msg("cov_theta: \n", results["cov_theta"])
+    print_msg("Internal Covariance of theta:\n", results["cov_theta_internal"])
     print_msg("mean of the fixed effects: ", results["x"][-nb:])
     print_msg(
         "marginal variances of the fixed effects: ",
@@ -298,19 +296,15 @@ if __name__ == "__main__":
     )
 
     print_msg("\n--- Comparisons ---")
-    # Compare hyperparameters
-    #theta_ref = np.load(f"{BASE_DIR}/inputs_nv{nv}_ns{ns}_nt{nt}_nb{nb}/reference_outputs/theta_ref.npy")
-    theta_ref = np.loadtxt(f"{BASE_DIR}/inputs_nv{nv}_ns{ns}_nt{nt}_nb{nb}/reference_outputs/theta_interpretS_original_DALIA_perm_15_1.dat")
-    np.save(f"{BASE_DIR}/inputs_nv{nv}_ns{ns}_nt{nt}_nb{nb}/reference_outputs/theta_ref.npy", theta_ref)
 
     print_msg(
         "Norm (theta - theta_ref):        ",
         f"{np.linalg.norm(results['theta'] - get_host(theta_ref)):.4e}",
     )
 
-    #x_ref = np.load(f"{BASE_DIR}/inputs_nv{nv}_ns{ns}_nt{nt}_nb{nb}/reference_outputs/x_ref.npy")
-    x_ref = np.loadtxt(f"{BASE_DIR}/inputs_nv{nv}_ns{ns}_nt{nt}_nb{nb}/reference_outputs/x_ref_8499_1.dat")
-    np.save(f"{BASE_DIR}/inputs_nv{nv}_ns{ns}_nt{nt}_nb{nb}/reference_outputs/x_ref.npy", x_ref)   
+    x_ref = np.load(
+        f"{BASE_DIR}/inputs_nv{nv}_ns{ns}_nt{nt}_nb{nb}/reference_outputs/x_ref.npy"
+    )
     x_ref = x_ref[dalia.model.permutation_latent_variables]
 
     # Compare latent parameters

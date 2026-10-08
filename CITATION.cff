@@ -1,0 +1,88 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata from this file."
+title: "Accelerated Spatio-Temporal Bayesian Modeling for Multivariate Gaussian Processes"
+authors:
+  - family-names: "Gaedke-Merzhäuser"
+    given-names: "Lisa"
+  - family-names: "Maillou"
+    given-names: "Vincent"
+  - family-names: "Rodriguez Avellaneda"
+    given-names: "Fernando"
+  - family-names: "Schenk"
+    given-names: "Olaf"
+  - family-names: "Moraga"
+    given-names: "Paula"
+  - family-names: "Luisier"
+    given-names: "Mathieu"
+  - family-names: "Ziogas"
+    given-names: "Alexandros Nikolaos"
+  - family-names: "Rue"
+    given-names: "Håvard"
+year: 2025
+doi: "10.1145/3712285.3759832"
+url: "https://doi.org/10.1145/3712285.3759832"
+publisher: "Association for Computing Machinery"
+keywords:
+  - "Large-Scale Bayesian Inference"
+  - "Spatio-Temporal Modeling"
+  - "Distributed Memory Computing"
+references:
+  - type: conference-paper
+    title: "Accelerated Spatio-Temporal Bayesian Modeling for Multivariate Gaussian Processes"
+    authors:
+      - family-names: "Gaedke-Merzhäuser"
+        given-names: "Lisa"
+      - family-names: "Maillou"
+        given-names: "Vincent"
+      - family-names: "Rodriguez Avellaneda"
+        given-names: "Fernando"
+      - family-names: "Schenk"
+        given-names: "Olaf"
+      - family-names: "Moraga"
+        given-names: "Paula"
+      - family-names: "Luisier"
+        given-names: "Mathieu"
+      - family-names: "Ziogas"
+        given-names: "Alexandros Nikolaos"
+      - family-names: "Rue"
+        given-names: "Håvard"
+    year: 2025
+    doi: "10.1145/3712285.3759832"
+    url: "https://doi.org/10.1145/3712285.3759832"
+    publisher: "Association for Computing Machinery"
+    collection-title: "Proceedings of the International Conference for High Performance Computing, Networking, Storage and Analysis"
+    start: 949
+    end: 972
+    isbn: "9798400714665"
+  - type: conference-paper
+    title: "Parallel Selected Inversion of Block-Tridiagonal with Arrowhead Matrices"
+    authors:
+      - family-names: "Maillou"
+        given-names: "Vincent"
+      - family-names: "Gaedke-Merzhauser"
+        given-names: "Lisa"
+      - family-names: "Ziogas"
+        given-names: "Alexandros Nikolaos"
+      - family-names: "Schenk"
+        given-names: "Olaf"
+      - family-names: "Luisier"
+        given-names: "Mathieu"
+    year: 2025
+    doi: "10.1109/CLUSTER59342.2025.11186484"
+    url: "https://doi.ieeecomputersociety.org/10.1109/CLUSTER59342.2025.11186484"
+    publisher: "IEEE Computer Society"
+    collection-title: "2025 IEEE International Conference on Cluster Computing (CLUSTER)"
+    start: 1
+    end: 12
+    keywords:
+      - "Materials science and technology"
+      - "Temperature distribution"
+      - "Computational modeling"
+      - "Graphics processing units"
+      - "Linear algebra"
+      - "Predictive models"
+      - "Libraries"
+      - "Supercomputers"
+      - "Sparse matrices"
+      - "Parallel algorithms"
+

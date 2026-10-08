@@ -51,9 +51,7 @@ def extract_diagonal(
     if a.shape[0] != a.shape[1]:
         raise ValueError("The input matrix must be square.")
 
-    diagonal = xp.zeros(a.shape[0])
-
-    # if scipy.sparse or xp.ndarray .diagonal() exists
+    # If scipy.sparse or xp.ndarray .diagonal() exists
     if not backend_flags["cupy_avail"] or isinstance(a, xp.ndarray):
         diagonal = a.diagonal()
     else:
@@ -81,4 +79,3 @@ def memory_footprint(
     total_memory_gb = total_memory_bytes / (1024**3)
 
     print(f"Total memory footprint of Q_prior: {total_memory_gb:.6f} GB")
-

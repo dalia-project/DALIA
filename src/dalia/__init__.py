@@ -38,16 +38,25 @@ if backend_flags["array_module"] is not None:
             xp.abs(1)
 
         except (ImportError, ImportWarning, ModuleNotFoundError) as e:
-            warn(f"'CuPy' is unavailable, defaulting to 'NumPy'. ({e})")
+            warn(
+                f"'CuPy' backend selected but unavailable: defaulting to 'NumPy'. ({e})"
+            )
             import numpy as xp
             import scipy as sp
 
             xp_host = xp
     else:
-        raise ValueError(f"Unrecognized ARRAY_MODULE '{backend_flags['array_module']}'")
+        warn(
+            f"Unrecognized ARRAY_MODULE '{backend_flags['array_module']}', defaulting to 'NumPy'."
+        )
+
+        import numpy as xp
+        import scipy as sp
+
+        xp_host = xp
 else:
     # If the user does not specify the array module, prioritize numpy.
-    warn("No `ARRAY_MODULE` specified, DALIA.core defaulting to 'NumPy'.")
+    # LOG: warn("No `ARRAY_MODULE` specified, DALIA.core defaulting to 'NumPy'.")
     import numpy as xp
     import scipy as sp
 
@@ -63,7 +72,8 @@ try:
 
     backend_flags["cupy_avail"] = True
 except (ImportError, ImportWarning, ModuleNotFoundError) as e:
-    warn(f"No 'CuPy' backend detected. ({e})")
+    ...
+    # LOG: warn(f"No 'CuPy' backend detected. ({e})")
 
 
 try:
@@ -85,15 +95,43 @@ try:
             comm.Recv([array, MPI.FLOAT], source=0)
 
     backend_flags["mpi_avail"] = True
+
     if backend_flags["cupy_avail"] and os.environ.get("MPI_CUDA_AWARE", "0") == "1":
-        backend_flags["mpi_cuda_aware"] = True
+        # If CuPy is available and CUDA-aware MPI is requested, check if it works.
+        try:
+            cupy_array = cupy.array([comm_rank], dtype=cupy.float32)
+            if comm_size > 1:
+                if comm_rank == 0:
+                    comm.Send([cupy_array.data.ptr, MPI.FLOAT], dest=1)
+                elif comm_rank == 1:
+                    comm.Recv([cupy_array.data.ptr, MPI.FLOAT], source=0)
+                # Only set to True if MPI communication with GPU data succeeded
+                backend_flags["mpi_cuda_aware"] = True
+            else:
+                # For single process, we can't test MPI communication but we can test GPU memory access
+                # Just accessing the GPU pointer suggests CUDA-aware MPI support is available
+                _ = cupy_array.data.ptr  # This will fail if CUDA context is broken
+                backend_flags["mpi_cuda_aware"] = True
+        except Exception as e:
+            warn(f"CUDA-aware MPI test failed: {e}, CUDA-aware MPI will be disabled.")
+
     if backend_flags["cupy_avail"] and os.environ.get("USE_NCCL", "0") == "1":
-        backend_flags["nccl_avail"] = True
-    else:
-        backend_flags["nccl_avail"] = False
+        # If CuPy is available and NCCL is requested, check if NCCL is available.
+        try:
+            # Check if NCCL is available and functional
+            from cupy.cuda import nccl
+
+            nccl_id = nccl.get_unique_id()
+            backend_flags["nccl_avail"] = True
+        except (ImportError, ImportWarning, ModuleNotFoundError) as e:
+            warn(
+                f"'NCCL' backend requested but unavailable, NCCL will not be used. ({e})"
+            )
+        except (RuntimeError, OSError) as e:
+            warn(f"NCCL test failed: {e}, NCCL will not be used.")
 
 except (ImportError, ImportWarning, ModuleNotFoundError) as e:
-    warn(f"No 'MPI' backend detected. ({e})")
+    # LOG: warn(f"No 'MPI' backend detected. ({e})")
 
     comm_rank = 0
     comm_size = 1

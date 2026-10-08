@@ -11,7 +11,7 @@ from dalia.configs import likelihood_config, dalia_config, submodels_config
 from dalia.core.model import Model
 from dalia.core.dalia import DALIA
 from dalia.submodels import RegressionSubModel, SpatioTemporalSubModel
-from dalia.utils import get_host, print_msg, extract_diagonal
+from dalia.utils import get_host, print_msg, plot_marginal_distributions_hp
 from examples_utils.parser_utils import parse_args
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -26,6 +26,7 @@ if __name__ == "__main__":
         "type": "spatio_temporal",
         "input_dir": f"{BASE_DIR}/inputs_spatio_temporal",
         "spatial_domain_dimension": 2,
+        # These hyperparameters are in the internal scale (dalia.py/BFGS)
         "r_s": 0,
         "r_t": 0,
         "sigma_st": 0,
@@ -52,12 +53,13 @@ if __name__ == "__main__":
     likelihood_dict = {
         "type": "gaussian",
         "prec_o": 4,
-        # "prior_hyperparameters": {"type": "gaussian", "mean": 1.4, "precision": 0.5},
-        "prior_hyperparameters": {
-            "type": "penalized_complexity",
-            "alpha": 0.01,
-            "u": 4,
-        },
+        "prior_hyperparameters": {"type": "gamma", "alpha": 2.0, "beta": 2.0},
+        #"prior_hyperparameters": {"type": "gaussian", "mean": 1.4, "precision": 0.5},
+        # "prior_hyperparameters": {
+        #     "type": "penalized_complexity",
+        #     "alpha": 0.01,
+        #     "u": 4,
+        # },
     }
 
     # Creation of the model by combining the submodels and the likelihood
@@ -74,7 +76,7 @@ if __name__ == "__main__":
             "max_iter": args.max_iter,
             "gtol": 1e-3,
             "disp": True,
-            "maxcor": len(model.theta),
+            "maxcor": len(model.theta_external),
         },
         "f_reduction_tol": 1e-3,
         "theta_reduction_tol": 1e-4,
@@ -91,43 +93,48 @@ if __name__ == "__main__":
     results = dalia.run()
 
     print_msg("\n--- Results ---")
+    theta_ref = np.load(f"{BASE_DIR}/reference_outputs/theta_ref.npy")
+
     print_msg("Theta values:\n", results["theta"])
-    print_msg("Covariance of theta:\n", results["cov_theta"])
-    print_msg(
-        "Mean of the fixed effects:\n",
-        results["x"][-model.submodels[-1].n_fixed_effects :],
-    )
+    print_msg("Theta values internal:\n", results["theta_internal"])
+    print_msg("Covariance of theta:\n", results["cov_theta_internal"])
 
     print_msg("\n--- Comparisons ---")
     # Compare hyperparameters
-    theta_ref = np.load(f"{BASE_DIR}/reference_outputs/theta_ref.npy")
     print_msg(
         "Norm (theta - theta_ref):        ",
-        f"{np.linalg.norm(results['theta'] - get_host(theta_ref)):.4e}",
+        f"{np.linalg.norm(get_host(results["theta"]) - theta_ref):.4e}",
     )
 
     # Compare latent parameters
     x_ref = np.load(f"{BASE_DIR}/reference_outputs/x_ref.npy")
     print_msg(
         "Norm (x - x_ref):                ",
-        f"{np.linalg.norm(results['x'] - get_host(x_ref)):.4e}",
+        f"{np.linalg.norm(get_host(results['x']) - x_ref):.4e}",
     )
 
     # Compare marginal variances of latent parameters
-    var_latent_params = results["marginal_variances_latent"]
+    var_latent_params = get_host(results["marginal_variances_latent"])
+    dalia.model.theta_internal = results["theta_internal"]
     Qconditional = dalia.model.construct_Q_conditional(eta=model.a @ model.x)
     Qinv_ref = xp.linalg.inv(Qconditional.toarray())
     print_msg(
         "Norm (marg var latent - ref):    ",
-        f"{np.linalg.norm(var_latent_params - xp.diag(Qinv_ref)):.4e}",
+        f"{np.linalg.norm(var_latent_params - get_host(xp.diag(Qinv_ref))):.4e}",
     )
 
-    # Compare marginal variances of observations
-    # var_obs = dalia.get_marginal_variances_observations(theta=theta_ref, x_star=x_ref)
-    # var_obs_ref = extract_diagonal(model.a @ Qinv_ref @ model.a.T)
-    # print_msg(
-    #     "Norm (var_obs - var_obs_ref):    ",
-    #     f"{xp.linalg.norm(var_obs - var_obs_ref):.4e}",
-    # )
+    print_msg("\n--- Marginal distributions of the hyperparameters ---")
+    marginals_hp = dalia.marginal_distributions_hp() 
 
+    fig, axes = plot_marginal_distributions_hp(marginals_hp)
+    import matplotlib.pyplot as plt
+    plt.savefig("gst_small_marginal_distributions_hp.png")
+    
+    prec_obs = marginals_hp['hyperparameters']['prec_o']
+    quantile_pairs = prec_obs['quantiles']['external']['pairs']
+
+    print("Quantile pairs of prec_o:")
+    for p, q in quantile_pairs:
+        print(f"   {p:.3f} quantile: {q:.4f}")
+    
     print_msg("\n--- Finished ---")

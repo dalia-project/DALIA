@@ -37,11 +37,14 @@ class Likelihood(ABC):
         **kwargs : optional
             Hyperparameters for likelihood.
 
-
         Returns
         -------
         likelihood : float
             Likelihood.
+
+        Implementation Notes:
+        ---------------------
+        - This function does not guarantee that the likelihood is a scalar. If evaluated from numpy/cupy dot product it will be a ndarray of shape (1,).
         """
         pass
 

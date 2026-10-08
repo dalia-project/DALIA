@@ -1,15 +1,16 @@
 # Copyright 2024-2025 DALIA authors. All rights reserved.
 
 import math
-from tabulate import tabulate
 
 import numpy as np
 from scipy.sparse import csc_matrix, load_npz, spmatrix
+from tabulate import tabulate
 
 from dalia import sp, xp
 from dalia.configs.submodels_config import SpatialSubModelConfig
 from dalia.core.submodel import SubModel
 from dalia.utils import add_str_header
+
 
 class SpatialSubModel(SubModel):
     """Fit a spatial model."""
@@ -123,7 +124,7 @@ class SpatialSubModel(SubModel):
 
         # --- Make the Submodel table ---
         values = [
-            ["Number of Spatial Nodes", self.ns], 
+            ["Number of Spatial Nodes", self.ns],
             ["Spatial Range (r_s)", f"{self.config.r_s:.3f}"],
             ["Spatial Variation (sigma_e)", f"{self.sigma_e:.3f}"],
         ]
@@ -132,12 +133,12 @@ class SpatialSubModel(SubModel):
             tablefmt="fancy_grid",
             colalign=("left", "center"),
         )
-        
+
         # Add the header title
         submodel_table = add_str_header(
             title=self.submodel_type.replace("_", " ").title(),
             table=submodel_table,
         )
         str_representation += submodel_table
-        
+
         return str_representation

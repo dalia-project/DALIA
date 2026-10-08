@@ -168,7 +168,7 @@ if __name__ == "__main__":
 
     print_msg("results['theta']: ", results["theta"])
 
-    print_msg("cov_theta: \n", results["cov_theta"])
+    print_msg("Internal Covariance of theta:\n", results["cov_theta_internal"])
     print_msg("mean of the fixed effects: ", results["x"][-nb:])
     print_msg(
         "marginal variances of the fixed effects: ",

@@ -8,7 +8,7 @@ sys.path.append(parent_dir)
 from dalia.configs import likelihood_config, dalia_config, submodels_config
 from dalia.core.model import Model
 from dalia.core.dalia import DALIA
-from dalia.utils import print_msg, get_host
+from dalia.utils import print_msg, get_host, plot_marginal_distributions_hp
 from dalia.submodels import RegressionSubModel, SpatioTemporalSubModel
 from examples_utils.parser_utils import parse_args
 from dalia import xp
@@ -27,12 +27,12 @@ if __name__ == "__main__":
         "input_dir": f"{BASE_DIR}/inputs_spatio_temporal",
         "spatial_domain_dimension": 2,
         "r_s": 0.0,
-        "r_t": 0.0,
-        "sigma_st": 0.0,
-        "manifold": "plane",
-        "ph_s": {"type": "gaussian", "mean": 0.03972077083991806, "precision": 0.5},
-        "ph_t": {"type": "gaussian", "mean": 2.3931471805599456, "precision": 0.5},
-        "ph_st": {"type": "gaussian", "mean": 1.4379142862353824, "precision": 0.5},
+        "r_t": 2.2,
+        "sigma_st": 1.3,
+        "manifold": "sphere",
+        "ph_s": {"type": "penalized_complexity", "alpha": 0.01, "u": 0.5},
+        "ph_t": {"type": "penalized_complexity", "alpha": 0.01, "u": 5},
+        "ph_st": {"type": "penalized_complexity", "alpha": 0.01, "u": 3},
     }
     spatio_temporal = SpatioTemporalSubModel(
         config=submodels_config.parse_config(spatio_temporal_dict),
@@ -85,15 +85,11 @@ if __name__ == "__main__":
         config=dalia_config.parse_config(dalia_dict),
     )
 
-    # print_msg("\n--- References ---")
-    theta_ref = xp.array(np.load(f"{BASE_DIR}/reference_outputs/theta_ref.npy"))
-    x_ref = xp.array(np.load(f"{BASE_DIR}/reference_outputs/x_ref.npy"))
-    
     results = dalia.run()
     
     print_msg("\n--- Results ---")
     print_msg("Theta values:\n", results["theta"])
-    print_msg("Covariance of theta:\n", results["cov_theta"])
+    print_msg("Internal Covariance of theta:\n", results["cov_theta_internal"])
     print_msg(
         "Mean of the fixed effects:\n",
         results["x"][-model.submodels[-1].n_fixed_effects:],
@@ -102,15 +98,17 @@ if __name__ == "__main__":
     print_msg("\n--- Comparisons ---")
 
     # Compare hyperparameters
+    theta_ref = np.array(np.load(f"{BASE_DIR}/reference_outputs/theta_ref.npy"))
     print_msg(
         "Norm (theta - theta_ref):        ",
-        f"{np.linalg.norm(results['theta'] - get_host(theta_ref)):.4e}",
+        f"{np.linalg.norm(get_host(results['theta_internal']) - theta_ref):.4e}",
     )
     
     # Compare latent parameters
+    x_ref = np.array(np.load(f"{BASE_DIR}/reference_outputs/x_ref.npy"))
     print_msg(
         "Norm (x - x_ref):                ",
-        f"{np.linalg.norm(results['x'] - get_host(x_ref)):.4e}",
+        f"{np.linalg.norm(get_host(results['x']) - x_ref):.4e}",
     )
     
     print_msg("\n--- Finished ---")

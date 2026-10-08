@@ -1,8 +1,10 @@
 # Copyright 2024-2025 DALIA authors. All rights reserved.
-import numpy as np
+from typing import Literal
+
 from dataclasses import dataclass
 
-from dalia import ArrayLike, backend_flags, comm_rank
+
+from dalia import ArrayLike, backend_flags, comm_rank, xp
 from dalia.utils.gpu_utils import get_array_module_name, get_device, get_host
 
 if backend_flags["mpi_avail"]:
@@ -11,11 +13,13 @@ if backend_flags["mpi_avail"]:
 if backend_flags["cupy_avail"]:
     import cupy as cp
 
+
 @dataclass
 class DummyCommunicator:
     """Communicator class to handle MPI communication when
     MPI is not available.
     """
+
     size: int = 1
     rank: int = 0
 
@@ -112,7 +116,9 @@ def allgather(
     if backend_flags["mpi_avail"]:
         if get_array_module_name(obj) == "cupy" and not backend_flags["mpi_cuda_aware"]:
             obj_comm = get_host(obj)
-            return get_device(np.concatenate(comm.allgather(obj_comm)))
+            gathered_objs = comm.allgather(obj_comm)
+            # Convert gathered numpy arrays back to cupy arrays
+            return [get_device(arr) for arr in gathered_objs]
         else:
             return comm.allgather(obj)
 
@@ -134,9 +140,27 @@ def bcast(
     comm (CommunicatorType), optional:
         The communication group. Default is MPI.COMM_WORLD.
     """
-    if backend_flags["mpi_avail"]:
-        comm.Bcast(data, root=root)
+    # Need to check data module and MPI capabilities
+    d2h2d_needed : bool = (
+        backend_flags["mpi_avail"] and get_array_module_name(data) == "cupy"
+    )
 
+    if backend_flags["mpi_avail"]:
+        if d2h2d_needed:
+            data_comm = get_host(data)
+        else:
+            data_comm = data
+
+        if data.ndim == 0:
+            comm.Bcast(data_comm, root=root)
+        else:
+            comm.Bcast(data_comm[:], root=root)
+
+        if d2h2d_needed:
+            if data.ndim == 0:
+                data[...] = get_device(data_comm)
+            else:
+                data[:] = get_device(data_comm)
 
 def get_active_comm(
     comm,
@@ -209,3 +233,67 @@ def smartsplit(
         color_new_group = 0
 
     return active_comm, comm_new_group, color_new_group
+
+def check_vector_consistency(
+    value: ArrayLike,
+    comm,
+    flag: str,
+    verbose: Literal["No", "Minimal", "Full"] = "No",
+    rtol: float = 1e-10,
+):
+    """ Check if all processes have the same value.
+
+    Parameters:
+    -----------
+    value (ArrayLike):
+        The value to check.
+    comm (CommunicatorType), optional:
+        The communication group.
+    flag (str):
+        A string to identify the value being checked in the error message.
+    verbose (str):
+        The level of verbosity for the error message. Choose from 'No', 'Minimal', or 'Full'. Default is 'No'.
+    rtol (float):
+        The relative tolerance for the consistency check. Default is 1e-10.
+
+    Raises:
+    -------
+    ValueError:
+        If the value is not consistent across all processes.
+    """
+    synchronize(comm = comm)
+
+    # A vector might for some models be passed as a scalar, or simply a list
+    # . In these cases we convert it to an array for the consistency check.
+    if value is not None:
+        if not isinstance(value, list):
+            value = xp.array([value])
+        elif not isinstance(value, xp.ndarray):
+            value = xp.array(value)
+
+    value_ref = value.copy()
+
+    bcast(data=value_ref[:], root=0, comm=comm)
+
+    norm_diff = xp.linalg.norm(value - value_ref)
+
+    if norm_diff > rtol:
+        # Print indices and values where value and value_ref differ
+        if verbose == "No":
+            raise ValueError(
+                f"Process {comm.Get_rank()} has a different {flag} than the reference process with a norm of the difference of {norm_diff:.4e}."
+            )
+
+        diff_indices = xp.where(value != value_ref)[0]
+        if verbose == "Minimal":
+            # Only print the first 5 differences, make sure it's 5 or the max number of differences
+            diff_indices = diff_indices[:min(5, len(diff_indices))]
+        elif verbose == "Full":
+            pass
+        else:
+            raise ValueError(
+                f"Invalid verbose option: {verbose}. Choose from 'No', 'Minimal', or 'Full'."
+            )
+
+        for idx in diff_indices:
+            print(f"Process {comm.Get_rank()} difference at index {idx}: {flag}={value_ref[idx]}, value={value[idx]}")

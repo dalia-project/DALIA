@@ -6,10 +6,14 @@ from dalia.prior_hyperparameters.penalized_complexity import (
     PenalizedComplexityPriorHyperparameters,
 )
 from dalia.prior_hyperparameters.beta import BetaPriorHyperparameters
+from dalia.prior_hyperparameters.gamma import GammaPriorHyperparameters
+from dalia.prior_hyperparameters.inverse_gamma import InverseGammaPriorHyperparameters
 
 __all__ = [
     "GaussianPriorHyperparameters",
     "GaussianMVNPriorHyperparameters",
     "PenalizedComplexityPriorHyperparameters",
     "BetaPriorHyperparameters",
+    "GammaPriorHyperparameters",
+    "InverseGammaPriorHyperparameters",
 ]

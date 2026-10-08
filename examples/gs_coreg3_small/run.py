@@ -1,24 +1,24 @@
-import sys
 import os
-
-parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-sys.path.append(parent_dir)
+import sys
 
 import numpy as np
 
 from dalia import xp
 from dalia.configs import (
+    dalia_config,
     likelihood_config,
     models_config,
-    dalia_config,
     submodels_config,
 )
-from dalia.core.model import Model
 from dalia.core.dalia import DALIA
+from dalia.core.model import Model
 from dalia.models import CoregionalModel
-from dalia.utils import print_msg, get_host
 from dalia.submodels import RegressionSubModel, SpatialSubModel
-from examples_utils.parser_utils import parse_args
+from dalia.utils import get_host, print_msg
+
+parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.append(parent_dir)
+from examples_utils.parser_utils import parse_args  # noqa: E402
 
 SEED = 63
 np.random.seed(SEED)
@@ -26,7 +26,9 @@ np.random.seed(SEED)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 if __name__ == "__main__":
-    print_msg("--- Example: Gaussian Coregional (3 variates) spatial model with regression ---")
+    print_msg(
+        "--- Example: Gaussian Coregional (3 variates) spatial model with regression ---"
+    )
 
     # Check for parsed parameters
     args = parse_args()
@@ -215,7 +217,7 @@ if __name__ == "__main__":
 
     print_msg("results['theta']: ", results["theta"])
 
-    print_msg("cov_theta: \n", results["cov_theta"])
+    print_msg("Internal Covariance of theta:\n", results["cov_theta_internal"])
     print_msg("mean of the fixed effects: ", results["x"][-nb:])
     print_msg(
         "marginal variances of the fixed effects: ",
@@ -224,15 +226,19 @@ if __name__ == "__main__":
 
     print_msg("\n--- Comparisons ---")
     # Compare hyperparameters
-    theta_ref = np.load(f"{BASE_DIR}/inputs_nv{nv}_ns{ns}_nt{nt}_nb{nb}/reference_outputs/theta_ref.npy")
+    theta_ref = np.load(
+        f"{BASE_DIR}/inputs_nv{nv}_ns{ns}_nt{nt}_nb{nb}/reference_outputs/theta_ref.npy"
+    )
     print_msg(
         "Norm (theta - theta_ref):        ",
         f"{np.linalg.norm(results['theta'] - get_host(theta_ref)):.4e}",
     )
 
-    x_ref = np.load(f"{BASE_DIR}/inputs_nv{nv}_ns{ns}_nt{nt}_nb{nb}/reference_outputs/x_ref.npy")
+    x_ref = np.load(
+        f"{BASE_DIR}/inputs_nv{nv}_ns{ns}_nt{nt}_nb{nb}/reference_outputs/x_ref.npy"
+    )
     # Compare latent parameters
-    # 
+    #
     print_msg(
         "Norm (x - x_ref):                ",
         f"{np.linalg.norm(results['x'] - get_host(x_ref)):.4e}",

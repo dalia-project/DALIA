@@ -53,14 +53,14 @@ class BinomialLikelihood(Likelihood):
         y : NDArray
             Vector of the observations.
 
-        Notes
-        -----
-        For now only a sigmoid link-function is implemented.
-
         Returns
         -------
         likelihood : float
             Likelihood.
+
+        Notes
+        -----
+        - For now only a sigmoid link-function is implemented.
         """
         linkEta: NDArray = self.link_function(eta)
 

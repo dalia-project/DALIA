@@ -1,0 +1,123 @@
+name: "Performance Request"
+description: Report a performance issue or suggest a performance optimization
+labels: [performance]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for helping us improve DALIA performances!
+
+  - type: textarea
+    id: performance_issue
+    attributes:
+      label: Describe the performance issue
+      description: | 
+        What part of the code or workflow seems slow or could be improved 
+        further? Please describe the context and what you observed.
+      placeholder: Describe the operation, function, or workflow...
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: |
+       Please provide a minimal example or steps to reproduce the behavior, 
+       if not possible, please provide a gist script that reproduces the issue.
+      placeholder: List the steps or provide a code snippet...
+      render: python
+    validations:
+      required: true
+
+  - type: textarea
+    id: how_to_fix
+    attributes:
+      label: How to fix or optimize
+      description: |
+        If you have suggestions on how to solve this performance issue or
+        optimize the code, please describe them here.
+      placeholder: Describe your suggestions here...
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: profiling
+    attributes:
+      label: Profiling or timing information (optional)
+      description: | 
+        If available, please include any profiling output or timing measurements.
+      placeholder: Paste profiling output or timing results here...
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: hardware_env
+    attributes:
+      label: Hardware and Environment Details
+      description: | 
+        Please specify your hardware (CPU, GPU, RAM, etc.), environment 
+        configuration, and relevant package versions.
+      placeholder: |
+        Example:
+        - CPU: Intel i7-12700K
+        - GPU: NVIDIA A100
+        - RAM: 32GB
+        - OS: Ubuntu 22.04
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: python_version
+    attributes:
+      label: Python version
+      description: e.g. 3.11
+    validations:
+      required: true
+
+  - type: input
+    id: dalia_version
+    attributes:
+      label: Dalia version
+      description: e.g. 0.1.0
+    validations:
+      required: true
+
+  - type: textarea
+    id: other_packages
+    attributes:
+      label: Other packages
+      description: | 
+        List any other relevant packages and their versions that might affect 
+        performance.
+      placeholder: e.g. numpy 1.21.0, scipy 1.3.0
+      render: text
+    validations:
+      required: false
+
+  - type: input
+    id: run_command
+    attributes:
+      label: How did you run the code? (command or bash script)
+      description: | 
+        Please specify the exact command, script, or notebook cell you used to 
+        execute the code.
+      placeholder: | 
+        e.g. python run.py, mpiexec -n 4 python run.py, or provide the bash 
+        script you used.
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional context
+      description: | 
+        Add any other relevant context or suggestions for optimization.
+      render: text
+    validations:
+      required: false

@@ -1,8 +1,7 @@
 # Copyright 2024-2025 DALIA authors. All rights reserved.
 
-from warnings import warn
-
 import time
+from warnings import warn
 
 from dalia import NDArray, backend_flags, sp, xp, xp_host
 from dalia.configs.dalia_config import SolverConfig
@@ -20,6 +19,7 @@ try:
     from serinv.utils import allocate_pobtax_permutation_buffers
     from serinv.wrappers import (
         allocate_pobtars,
+        allocate_pobtrs,
         ppobtaf,
         ppobtas,
         ppobtasi,
@@ -158,17 +158,29 @@ class DistSerinvSolver(Solver):
         self.buffer = allocate_pobtax_permutation_buffers(
             self.A_diagonal_blocks,
         )
-        self.pobtars: dict = allocate_pobtars(
-            A_diagonal_blocks=self.A_diagonal_blocks,
-            A_lower_diagonal_blocks=self.A_lower_diagonal_blocks,
-            A_lower_arrow_blocks=self.A_arrow_bottom_blocks,
-            A_arrow_tip_block=self.A_arrow_tip_block,
-            B=self.dist_rhs,
-            comm=self.comm,
-            array_module=xp.__name__,
-            strategy="allgather",
-            nccl_comm=self.nccl_comm,
-        )
+
+        if self.arrowhead_blocksize > 0:
+            self.reduced_system: dict = allocate_pobtars(
+                A_diagonal_blocks=self.A_diagonal_blocks,
+                A_lower_diagonal_blocks=self.A_lower_diagonal_blocks,
+                A_lower_arrow_blocks=self.A_arrow_bottom_blocks,
+                A_arrow_tip_block=self.A_arrow_tip_block,
+                B=self.dist_rhs,
+                comm=self.comm,
+                array_module=xp.__name__,
+                strategy="allgather",
+                nccl_comm=self.nccl_comm,
+            )
+        else:
+            self.reduced_system: dict = allocate_pobtrs(
+                A_diagonal_blocks=self.A_diagonal_blocks,
+                A_lower_diagonal_blocks=self.A_lower_diagonal_blocks,
+                B=self.dist_rhs,
+                comm=self.comm,
+                array_module=xp.__name__,
+                strategy="allgather",
+                nccl_comm=self.nccl_comm,
+            )
 
         # Initialize the caching strategy
         self.bta_cache_block_sort_index = None
@@ -177,21 +189,38 @@ class DistSerinvSolver(Solver):
         # Solver Metrics
         self.total_bytes: int = 0
 
-        self.t_cholesky = 0.0
+        self.t_factorize = 0.0
         self.t_solve = 0.0
 
-    def cholesky(
+    def factorize(
         self,
         A: sp.sparse.spmatrix,
         sparsity: str,
     ) -> None:
-        """Compute Cholesky factor of input matrix."""
+        """Compute the decomposition of a matrix.
+
+        Parameters
+        ----------
+        A : sp.sparse.spmatrix
+            The input matrix to decompose.
+        sparsity : str
+            The sparsity pattern of the matrix. Either 'bt' or 'bta'.
+
+        Returns
+        -------
+        None
+
+        Note:
+        -----
+        Uses the Cholesky decomposition.
+        """
+        synchronize(comm=self.comm)
+        tic = time.perf_counter()
+
         # Reset the tip block for reccurrent calls
         # print(f"WorldRank {self.rank} ENTERING {sparsity} cholesky.", flush=True)
         self._spmatrix_to_structured(A, sparsity)
 
-        tic = time.perf_counter()
-        synchronize(comm=self.comm)
         if sparsity == "bta":
             ppobtaf(
                 self.A_diagonal_blocks,
@@ -199,7 +228,7 @@ class DistSerinvSolver(Solver):
                 self.A_arrow_bottom_blocks,
                 self.A_arrow_tip_block,
                 buffer=self.buffer,
-                pobtars=self.pobtars,
+                pobtars=self.reduced_system,
                 comm=self.comm,
                 strategy="allgather",
                 nccl_comm=self.nccl_comm,
@@ -209,7 +238,7 @@ class DistSerinvSolver(Solver):
                 self.A_diagonal_blocks,
                 self.A_lower_diagonal_blocks,
                 buffer=self.buffer,
-                pobtrs=self.pobtars,
+                pobtrs=self.reduced_system,
                 comm=self.comm,
                 strategy="allgather",
                 nccl_comm=self.nccl_comm,
@@ -218,53 +247,96 @@ class DistSerinvSolver(Solver):
             raise ValueError(
                 f"Unknown sparsity pattern: {sparsity}. Use 'bt' or 'bta'."
             )
+
         synchronize(comm=self.comm)
         toc = time.perf_counter()
-        self.t_cholesky += toc - tic
+        self.t_factorize += toc - tic
 
     def solve(
         self,
         rhs: NDArray,
         sparsity: str,
     ) -> NDArray:
-        """Solve linear system using Cholesky factor."""
-        self._slice_rhs(rhs, sparsity)
+        """Solve linear system using Cholesky factor.
 
-        tic = time.perf_counter()
+        Parameters
+        ----------
+        rhs : NDArray
+            Right-hand side of the linear system.
+        sparsity : str
+            The sparsity pattern of the matrix. Either 'bt' or 'bta'.
+
+        Returns
+        -------
+        NDArray
+            Solution of the linear system.
+
+        Raises
+        ------
+        ValueError
+            If the sparsity pattern is unknown.
+        """
         synchronize(comm=self.comm)
-        if sparsity == "bta":
-            ppobtas(
-                L_diagonal_blocks=self.A_diagonal_blocks,
-                L_lower_diagonal_blocks=self.A_lower_diagonal_blocks,
-                L_lower_arrow_blocks=self.A_arrow_bottom_blocks,
-                L_arrow_tip_block=self.A_arrow_tip_block,
-                B=self.dist_rhs,
-                buffer=self.buffer,
-                pobtars=self.pobtars,
-                comm=self.comm,
-                strategy="allgather",
-                nccl_comm=self.nccl_comm,
-            )
-        elif sparsity == "bt":
-            ppobts(
-                L_diagonal_blocks=self.A_diagonal_blocks,
-                L_lower_diagonal_blocks=self.A_lower_diagonal_blocks,
-                B=self.dist_rhs[: -self.arrowhead_blocksize],
-                buffer=self.buffer,
-                pobtars=self.pobtars,
-                comm=self.comm,
-                strategy="allgather",
-                nccl_comm=self.nccl_comm,
-            )
-        else:
-            raise ValueError(
-                f"Unknown sparsity pattern: {sparsity}. Use 'bt' or 'bta'."
-            )
+        tic = time.perf_counter()
+
+        # Store the original shape of rhs to reshape the solution back after solving
+        in_rhs_shape = rhs.shape
+
+        # Ensure rhs is a 2D array
+        if rhs.ndim == 1:
+            rhs = rhs[:, None]
+
+        # Handle multiple RHS by processing each column separately
+        for col in range(rhs.shape[1]):
+            rhs_col = rhs[:, col : col + 1]  # Keep 2D shape with single column
+
+            self._slice_rhs(rhs_col, sparsity)
+
+            if sparsity == "bta":
+                ppobtas(
+                    L_diagonal_blocks=self.A_diagonal_blocks,
+                    L_lower_diagonal_blocks=self.A_lower_diagonal_blocks,
+                    L_lower_arrow_blocks=self.A_arrow_bottom_blocks,
+                    L_arrow_tip_block=self.A_arrow_tip_block,
+                    B=self.dist_rhs,
+                    buffer=self.buffer,
+                    pobtars=self.reduced_system,
+                    comm=self.comm,
+                    strategy="allgather",
+                    nccl_comm=self.nccl_comm,
+                )
+            elif sparsity == "bt":
+                ppobts(
+                    L_diagonal_blocks=self.A_diagonal_blocks,
+                    L_lower_diagonal_blocks=self.A_lower_diagonal_blocks,
+                    B=(
+                        self.dist_rhs[: -self.arrowhead_blocksize]
+                        if self.arrowhead_blocksize > 0
+                        else self.dist_rhs
+                    ),
+                    buffer=self.buffer,
+                    pobtrs=self.reduced_system,
+                    comm=self.comm,
+                    strategy="allgather",
+                    nccl_comm=self.nccl_comm,
+                )
+            else:
+                raise ValueError(
+                    f"Unknown sparsity pattern: {sparsity}. Use 'bt' or 'bta'."
+                )
+
+            self._gather_rhs(rhs_col, sparsity)
+
+            # Copy the solved column back to the original rhs
+            rhs[:, col : col + 1] = rhs_col
+
         synchronize(comm=self.comm)
         toc = time.perf_counter()
         self.t_solve += toc - tic
 
-        self._gather_rhs(rhs, sparsity)
+        # Reshape the solution back to the original shape if needed
+        if in_rhs_shape != rhs.shape:
+            rhs = rhs.reshape(in_rhs_shape)
 
         return rhs
 
@@ -272,7 +344,18 @@ class DistSerinvSolver(Solver):
         self,
         sparsity: str,
     ) -> float:
-        """Compute logdet of input matrix using Cholesky factor."""
+        """Compute the log determinant of the matrix.
+
+        Parameters
+        ----------
+        sparsity : str
+            The sparsity pattern of the matrix. Either 'bt' or 'bta'.
+
+        Returns
+        -------
+        float
+            The log determinant of the matrix.
+        """
         logdet = xp.array(0.0, dtype=xp.float64)
 
         if self.rank == 0:
@@ -282,14 +365,16 @@ class DistSerinvSolver(Solver):
 
             # Rank 0 do the reduced system; The loop start from 1 because of the
             # AllGather strategy and the size of the reduced system associated.
-            _n = self.pobtars["A_diagonal_blocks"].shape[0]
+            _n = self.reduced_system["A_diagonal_blocks"].shape[0]
             for i in range(1, _n):
                 logdet += xp.sum(
-                    xp.log(self.pobtars["A_diagonal_blocks"][i].diagonal())
+                    xp.log(self.reduced_system["A_diagonal_blocks"][i].diagonal())
                 )
 
             if sparsity == "bta":
-                logdet += xp.sum(xp.log(self.pobtars["A_arrow_tip_block"].diagonal()))
+                logdet += xp.sum(
+                    xp.log(self.reduced_system["A_arrow_tip_block"].diagonal())
+                )
         else:
             for i in range(1, self.n_locals[self.rank] - 1):
                 logdet += xp.sum(xp.log(self.A_diagonal_blocks[i].diagonal()))
@@ -303,10 +388,9 @@ class DistSerinvSolver(Solver):
         synchronize(comm=self.comm)
 
         if xp.isnan(logdet):
-            print(
+            raise ValueError(
                 f"WorldRank {MPI.COMM_WORLD.rank} logdet is NaN for {sparsity} matrix."
             )
-            exit()
 
         return 2 * logdet
 
@@ -322,7 +406,7 @@ class DistSerinvSolver(Solver):
                 L_lower_arrow_blocks=self.A_arrow_bottom_blocks,
                 L_arrow_tip_block=self.A_arrow_tip_block,
                 buffer=self.buffer,
-                pobtars=self.pobtars,
+                pobtars=self.reduced_system,
                 comm=self.comm,
                 strategy="allgather",
                 nccl_comm=self.nccl_comm,
@@ -332,7 +416,7 @@ class DistSerinvSolver(Solver):
                 L_diagonal_blocks=self.A_diagonal_blocks,
                 L_lower_diagonal_blocks=self.A_lower_diagonal_blocks,
                 buffer=self.buffer,
-                pobtrs=self.pobtars,
+                pobtrs=self.reduced_system,
                 comm=self.comm,
                 strategy="allgather",
                 nccl_comm=self.nccl_comm,
@@ -352,8 +436,10 @@ class DistSerinvSolver(Solver):
         """Map sp.spmatrix to BT or BTA."""
         self.A_diagonal_blocks[:] = 0.0
         self.A_lower_diagonal_blocks[:] = 0.0
-        self.A_arrow_bottom_blocks[:] = 0.0
-        self.A_arrow_tip_block[:] = 0.0
+        if self.A_arrow_bottom_blocks is not None:
+            self.A_arrow_bottom_blocks[:] = 0.0
+        if self.A_arrow_tip_block is not None:
+            self.A_arrow_tip_block[:] = 0.0
 
         if xp.__name__ == "cupy" and sparsity == "bta":
             if sparsity == "bta":
@@ -408,9 +494,9 @@ class DistSerinvSolver(Solver):
                 block_slice = A_csc[
                     -self.arrowhead_blocksize :, -self.arrowhead_blocksize :
                 ].tocoo()
-                self.A_arrow_tip_block[
-                    block_slice.row, block_slice.col
-                ] = block_slice.data
+                self.A_arrow_tip_block[block_slice.row, block_slice.col] = (
+                    block_slice.data
+                )
 
     def _spmatrix_to_bta(
         self,
@@ -646,6 +732,7 @@ class DistSerinvSolver(Solver):
         self,
         A: sp.sparse.spmatrix,
         sparsity: str,
+        symmetrize: bool = True,
     ) -> sp.sparse.spmatrix:
         """Map BT or BTA matrix to sp.spmatrix using sparsity pattern provided in A."""
         # A is assumed to be symmetric, only use lower triangular part
@@ -717,18 +804,19 @@ class DistSerinvSolver(Solver):
         rows = xp.concatenate(rows)
         cols = xp.concatenate(cols)
 
-        # TODO: Need to communicate to agregates/Map the local B matrix to all ranks
+        # Need to communicate to agregates/Map the local B matrix to all ranks
         # Need to operate on the datas
-        l_data = allgather(data, comm=self.comm)
-        l_rows = allgather(rows, comm=self.comm)
-        l_cols = allgather(cols, comm=self.comm)
+        l_data = xp.concatenate(allgather(data, comm=self.comm))
+        l_rows = xp.concatenate(allgather(rows, comm=self.comm))
+        l_cols = xp.concatenate(allgather(cols, comm=self.comm))
         synchronize(comm=self.comm)
+
         B_out = sp.sparse.coo_matrix((l_data, (l_rows, l_cols)), shape=B.shape).tocsc()
 
-        # Symmetrize B
-        B_out = B_out + sp.sparse.tril(B_out, k=-1).T
-
-        return B_out
+        if symmetrize:
+            return B_out + sp.sparse.tril(B_out, k=-1).T
+        else:
+            return B_out
 
     def _slice_rhs(
         self,
@@ -740,14 +828,16 @@ class DistSerinvSolver(Solver):
         start_idx = int(xp.cumsum(n_idx)[self.rank])
         end_idx = int(xp.cumsum(n_idx)[self.rank + 1])
 
-        # Ensure rhs is a 2D array with shape (n, 1)
-        if rhs.ndim == 1:
-            rhs = rhs[:, None]
-
+        # rhs is guaranteed to be 2D with shape (n, 1) at this point
         # print(f"Rank {self.rank} rhs.shape: {rhs.shape}, self.dist_rhs.shape: {self.dist_rhs.shape}, start_idx: {start_idx* self.diagonal_blocksize}, end_idx: {end_idx* self.diagonal_blocksize}")
-        self.dist_rhs[: -self.arrowhead_blocksize] = rhs[
-            start_idx * self.diagonal_blocksize : end_idx * self.diagonal_blocksize
-        ]
+        if self.arrowhead_blocksize > 0:
+            self.dist_rhs[: -self.arrowhead_blocksize] = rhs[
+                start_idx * self.diagonal_blocksize : end_idx * self.diagonal_blocksize
+            ]
+        else:
+            self.dist_rhs[:] = rhs[
+                start_idx * self.diagonal_blocksize : end_idx * self.diagonal_blocksize
+            ]
         if sparsity == "bta":
             self.dist_rhs[-self.arrowhead_blocksize :] = rhs[
                 -self.arrowhead_blocksize :, :
@@ -769,15 +859,27 @@ class DistSerinvSolver(Solver):
             and not backend_flags["mpi_cuda_aware"]
             and not backend_flags["nccl_avail"]
         ):
-            self.dist_rhs[: -self.arrowhead_blocksize].flatten().get(
-                out=self.send_rhs[
-                    self.remainders[self.rank] * self.diagonal_blocksize :
-                ]
-            )
+            if self.arrowhead_blocksize > 0:
+                self.dist_rhs[: -self.arrowhead_blocksize].flatten().get(
+                    out=self.send_rhs[
+                        self.remainders[self.rank] * self.diagonal_blocksize :
+                    ]
+                )
+            else:
+                self.dist_rhs.flatten().get(
+                    out=self.send_rhs[
+                        self.remainders[self.rank] * self.diagonal_blocksize :
+                    ]
+                )
         else:
-            self.send_rhs[
-                self.remainders[self.rank] * self.diagonal_blocksize :
-            ] = self.dist_rhs[: -self.arrowhead_blocksize].flatten()
+            if self.arrowhead_blocksize > 0:
+                self.send_rhs[
+                    self.remainders[self.rank] * self.diagonal_blocksize :
+                ] = self.dist_rhs[: -self.arrowhead_blocksize].flatten()
+            else:
+                self.send_rhs[
+                    self.remainders[self.rank] * self.diagonal_blocksize :
+                ] = self.dist_rhs.flatten()
 
         synchronize(comm=self.comm)
         self.comm.Allgather(
@@ -786,6 +888,9 @@ class DistSerinvSolver(Solver):
         )
         synchronize(comm=self.comm)
 
+        # This part needs a major re-work as the multiple RHS are handled one column at a time
+        # but Serinv can handle multiple RHS in one go. The problem is linked to DALIA internal
+        # representation (2nd dimension of rhs when only 1 rhs) and the collectives operations.
         if (
             backend_flags["array_module"] == "cupy"
             and not backend_flags["mpi_cuda_aware"]
@@ -795,18 +900,29 @@ class DistSerinvSolver(Solver):
                 start_idx = int(xp.cumsum(n_idx)[i])
                 end_idx = int(xp.cumsum(n_idx)[i + 1])
 
+                # Extract data from pinned host memory
+                host_data = self.recv_rhs[
+                    (i * self.max_n_locals + self.remainders[i])
+                    * self.diagonal_blocksize : (i + 1)
+                    * self.max_n_locals
+                    * self.diagonal_blocksize
+                ]
+
+                # Since we're processing one column at a time, rhs.shape[1] is always 1
+                # Reshape the 1D host data to 2D (n_rows, 1)
+                n_rows = (
+                    end_idx * self.diagonal_blocksize
+                    - start_idx * self.diagonal_blocksize
+                )
+                host_data_2d = host_data[:n_rows].reshape(-1, 1)
+
+                # Transfer to device and assign
+                # Here we can't use `.set()` because multidimmensional rhs is not contiguous array.
                 rhs[
                     start_idx
                     * self.diagonal_blocksize : end_idx
                     * self.diagonal_blocksize
-                ].set(
-                    arr=self.recv_rhs[
-                        (i * self.max_n_locals + self.remainders[i])
-                        * self.diagonal_blocksize : (i + 1)
-                        * self.max_n_locals
-                        * self.diagonal_blocksize
-                    ]
-                )
+                ] = xp.asarray(host_data_2d)
         else:
             for i in range(self.comm_size):
                 start_idx = int(xp.cumsum(n_idx)[i])
@@ -821,22 +937,24 @@ class DistSerinvSolver(Solver):
                     * self.diagonal_blocksize : (i + 1)
                     * self.max_n_locals
                     * self.diagonal_blocksize
-                ]
+                ].reshape(
+                    -1, rhs.shape[1]
+                )
         if sparsity == "bta":
             # Map the arrow-tip of self.dist_rhs to the global rhs
             rhs[-self.arrowhead_blocksize :] = self.dist_rhs[
                 -self.arrowhead_blocksize :
-            ].flatten()
+            ]
 
     def get_solver_memory(self) -> int:
         """Return the memory used by the solver in number of bytes"""
         bytes_pobtars: int = (
             self.buffer.nbytes
-            + self.pobtars["A_diagonal_blocks"].nbytes
-            + self.pobtars["A_lower_diagonal_blocks"].nbytes
-            + self.pobtars["A_lower_arrow_blocks"].nbytes
-            + self.pobtars["A_arrow_tip_block"].nbytes
-            + self.pobtars["B"].nbytes
+            + self.reduced_system["A_diagonal_blocks"].nbytes
+            + self.reduced_system["A_lower_diagonal_blocks"].nbytes
+            + self.reduced_system["A_lower_arrow_blocks"].nbytes
+            + self.reduced_system["A_arrow_tip_block"].nbytes
+            + self.reduced_system["B"].nbytes
         )
         bytes_local_system: int = (
             self.A_diagonal_blocks.nbytes
