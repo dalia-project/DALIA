@@ -1,6 +1,8 @@
+import sys
 from pathlib import Path
 import numpy as np
 
+from dalia import xp
 from dalia.configs import (
     likelihood_config,
     models_config,
@@ -13,24 +15,42 @@ from dalia.models import CoregionalModel
 from dalia.submodels import RegressionSubModel, SpatioTemporalSubModel
 from dalia.utils import print_msg, get_host
 
-SCRIPT_DIR = Path(__file__).resolve()
-DALIA_DIR = SCRIPT_DIR.parent.parent.parent.parent
-EXAMPLE_PATH = DALIA_DIR / "examples" / "gst_coreg2_small"
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+from data_generators import generate_coregional_spatio_temporal_data  # noqa: E402
+from itest_utils import generate_data  # noqa: E402
 
-X_TOL = 1e3 # 1.5e+2
-THETA_TOL = 1e2 # 9.e+1
-TYPICAL_N_ITER = 80 # On Fritz: 86
+# Values used to generate the data
+NX, NY, NT = 8, 8, 6
+N_OBS_PER_STEP = 100
+R_S, R_T = [np.log(0.4), np.log(0.5)], [np.log(3.0), np.log(2.0)]
+PREC_O = [4.0, 6.0]
+SIGMAS, LAMBDA_0_1 = [np.log(1.5), np.log(1.0)], 0.8
+BETAS = [[1.0], [-2.0]]
+
+ETA_REL_TOL = 2e-1
+THETA_TOL = 5e-1
+TYPICAL_N_ITER = 23
 
 def gstcoreg2_itest():
-    nv = 2
-    ns = 354
-    nt = 12
-    nb = 2
-
-    theta_ref_file = (
-        f"{EXAMPLE_PATH}/inputs_nv{nv}_ns{ns}_nt{nt}_nb{nb}/reference_outputs/theta_ref.npy"
+    # The data is generated from scratch, no data file of the repository is used
+    data_dir = generate_data(
+        "gstcoreg2",
+        lambda data_dir: generate_coregional_spatio_temporal_data(
+            data_dir,
+            nx=NX,
+            ny=NY,
+            nt=NT,
+            n_obs_per_step=N_OBS_PER_STEP,
+            r_s=R_S,
+            r_t=R_T,
+            prec_o=PREC_O,
+            sigmas=SIGMAS,
+            lambda_0_1=LAMBDA_0_1,
+            betas=BETAS,
+        ),
     )
-    theta_ref = np.load(theta_ref_file)
+    theta_original = np.load(f"{data_dir}/reference_outputs/theta_original.npy")
+    x_original = np.load(f"{data_dir}/reference_outputs/x_original.npy")
     perturbation = [
         0.18197867,
         -0.12551227,
@@ -42,13 +62,13 @@ def gstcoreg2_itest():
         -0.13006157,
         0.19308036,
     ]
-    theta_initial = theta_ref + np.array(perturbation)
+    theta_initial = theta_original + np.array(perturbation)
 
     # Configurations of the submodels for the first model
     # . Spatio-temporal submodel 1
     spatio_temporal_1_dict = {
         "type": "spatio_temporal",
-        "input_dir": f"{EXAMPLE_PATH}/inputs_nv{nv}_ns{ns}_nt{nt}_nb{nb}/model_1/inputs_spatio_temporal",
+        "input_dir": f"{data_dir}/model_1/inputs_spatio_temporal",
         "spatial_domain_dimension": 2,
         "r_s": theta_initial[0],
         "r_t": theta_initial[1],
@@ -56,12 +76,12 @@ def gstcoreg2_itest():
         "manifold": "plane",
         "ph_s": {
             "type": "gaussian", 
-            "mean": theta_ref[0], 
+            "mean": theta_original[0], 
             "precision": 0.5,
         },
         "ph_t": {
             "type": "gaussian", 
-            "mean": theta_ref[1], 
+            "mean": theta_original[1], 
             "precision": 0.5,
         },
         "ph_st": {
@@ -76,7 +96,7 @@ def gstcoreg2_itest():
     # . Regression submodel 1
     regression_1_dict = {
         "type": "regression",
-        "input_dir": f"{EXAMPLE_PATH}/inputs_nv{nv}_ns{ns}_nt{nt}_nb{nb}/model_1/inputs_regression",
+        "input_dir": f"{data_dir}/model_1/inputs_regression",
         "n_fixed_effects": 1,
         "fixed_effects_prior_precision": 0.001,
     }
@@ -103,7 +123,7 @@ def gstcoreg2_itest():
     # . Spatio-temporal submodel 2
     spatio_temporal_2_dict = {
         "type": "spatio_temporal",
-        "input_dir": f"{EXAMPLE_PATH}/inputs_nv{nv}_ns{ns}_nt{nt}_nb{nb}/model_2/inputs_spatio_temporal",
+        "input_dir": f"{data_dir}/model_2/inputs_spatio_temporal",
         "spatial_domain_dimension": 2,
         "r_s": theta_initial[3],
         "r_t": theta_initial[4],
@@ -111,12 +131,12 @@ def gstcoreg2_itest():
         "manifold": "plane",
         "ph_s": {
             "type": "gaussian", 
-            "mean": theta_ref[3], 
+            "mean": theta_original[3], 
             "precision": 0.5,
         },
         "ph_t": {
             "type": "gaussian", 
-            "mean": theta_ref[4], 
+            "mean": theta_original[4], 
             "precision": 0.5,
         },
         "ph_st": {
@@ -131,7 +151,7 @@ def gstcoreg2_itest():
     # . Regression submodel 2
     regression_2_dict = {
         "type": "regression",
-        "input_dir": f"{EXAMPLE_PATH}/inputs_nv{nv}_ns{ns}_nt{nt}_nb{nb}/model_2/inputs_regression",
+        "input_dir": f"{data_dir}/model_2/inputs_regression",
         "n_fixed_effects": 1,
         "fixed_effects_prior_precision": 0.001,
     }
@@ -144,7 +164,7 @@ def gstcoreg2_itest():
         "prec_o": theta_initial[5],
         "prior_hyperparameters": {
             "type": "gaussian",
-            "mean": theta_ref[5],
+            "mean": theta_original[5],
             "precision": 0.5,
         },
     }
@@ -160,8 +180,8 @@ def gstcoreg2_itest():
         "sigmas": [theta_initial[6], theta_initial[7]],
         "lambdas": [theta_initial[8]],
         "ph_sigmas": [
-            {"type": "gaussian", "mean": theta_ref[6], "precision": 0.5},
-            {"type": "gaussian", "mean": theta_ref[7], "precision": 0.5},
+            {"type": "gaussian", "mean": theta_original[6], "precision": 0.5},
+            {"type": "gaussian", "mean": theta_original[7], "precision": 0.5},
         ],
         "ph_lambdas": [
             {"type": "gaussian", "mean": 0.0, "precision": 0.5},
@@ -189,7 +209,7 @@ def gstcoreg2_itest():
         "eps_inner_iteration": 1e-3,
         "eps_gradient_f": 1e-3,
         "eps_hessian_f": 5 * 1e-3,
-        "simulation_dir": f"{EXAMPLE_PATH}",
+        "simulation_dir": f"{data_dir}",
     }
     dalia = DALIA(
         model=coreg_model,
@@ -205,30 +225,26 @@ def gstcoreg2_itest():
     elif results["optimization_iterations"] < TYPICAL_N_ITER:
         success_msg = "success_less_iters_than_typical"
 
-    # Compare hyperparameters
-    theta_ref = np.load(f"{EXAMPLE_PATH}/inputs_nv{nv}_ns{ns}_nt{nt}_nb{nb}/reference_outputs/theta_ref.npy")
-    print(f"theta_ref: {theta_ref}")
-    print(f"theta_dalia: {get_host(results['theta_internal'])}")
-    print_msg(
-        "Norm (theta - theta_ref): ",
-        f"{np.linalg.norm(get_host(results['theta_internal']) - theta_ref):.4e}",
-    )
-    if np.linalg.norm(get_host(results["theta_internal"]) - theta_ref) > THETA_TOL:
+    # Compare hyperparameters to the values used to generate the data
+    theta_dalia = get_host(results["theta"])
+    print(f"theta_original: {theta_original}")
+    print(f"theta_dalia: {theta_dalia}")
+    # . relative error for the large values, absolute error for the small ones
+    err_theta = np.abs(theta_dalia - theta_original) / np.maximum(1.0, np.abs(theta_original))
+    print_msg("Max error (theta - theta_original): ", f"{np.max(err_theta):.4e}")
+    if np.max(err_theta) > THETA_TOL:
         return "theta_tol_exceeded"
 
-    # Compare latent parameters
-    x_ref = np.load(f"{EXAMPLE_PATH}/inputs_nv{nv}_ns{ns}_nt{nt}_nb{nb}/reference_outputs/x_ref.npy")
-    x_ref = x_ref[dalia.model.permutation_latent_variables]
-    print(f"x_ref: {x_ref}")
-    print(f"x_dalia: {get_host(results['x'])}")
-    print_msg(
-        "Norm (x - x_ref):                ",
-        f"{np.linalg.norm(get_host(results['x']) - x_ref):.4e}",
-    )
-    if np.linalg.norm(get_host(results["x"]) - x_ref) > X_TOL:
-        return "x_tol_exceeded"
+    # Compare the linear predictor to the one used to generate the data
+    x_original = x_original[get_host(dalia.model.permutation_latent_variables)]
+    eta_original = get_host(dalia.model.a @ xp.asarray(x_original))
+    eta_dalia = get_host(dalia.model.a @ results["x"])
+    rel_err_eta = np.linalg.norm(eta_dalia - eta_original) / np.linalg.norm(eta_original)
+    print_msg("Normalized norm (eta - eta_original): ", f"{rel_err_eta:.4e}")
+    if rel_err_eta > ETA_REL_TOL:
+        return "eta_tol_exceeded"
 
     return success_msg
 
 if __name__ == "__main__":
-    gstcoreg2_itest()   
+    gstcoreg2_itest()

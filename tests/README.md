@@ -10,6 +10,14 @@ In a "functionnal" environment, on a cluster with the appropriate modules loaded
 - Directly using: `./runner.sh`
 - Check available options: `./runner.sh --help`.
 
+## Continuous integration
+
+The workflow `.github/workflows/tests.yml` runs on every pull request and on every push to `main` and `dev`. On a GitHub hosted runner (CPU only, NumPy backend) it runs, sequentially and with 2 MPI processes:
+- the unit and component integration tests: `pytest tests`,
+- the integration tests: `python tests/integration/runner.py`, which exits with an error if a test fails.
+
+The GPU backend (CuPy) is not covered by the workflow, it has to be tested on a machine with a GPU using `ARRAY_MODULE=cupy`.
+
 ## Tests status
 
 | Reference | Status | Reason |

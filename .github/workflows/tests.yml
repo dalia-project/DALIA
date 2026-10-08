@@ -1,0 +1,71 @@
+name: Tests
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  workflow_dispatch:
+
+# A new push on the same branch cancels the run in progress
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Unit and integration tests (CPU)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        # Login shell, required to activate the conda environment
+        shell: bash -el {0}
+
+    env:
+      # The GitHub hosted runners have no GPU, the tests run on the NumPy backend
+      ARRAY_MODULE: numpy
+      MPLBACKEND: Agg
+      OMP_NUM_THREADS: 1
+      # Allow 2 MPI processes whatever the number of cores of the runner
+      OMPI_MCA_rmaps_base_oversubscribe: 1
+      PRTE_MCA_rmaps_default_mapping_policy: ":oversubscribe"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up the conda environment
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: dalia
+          cache-environment: true
+          create-args: >-
+            -c conda-forge
+            python=3.13
+            numpy
+            scipy
+            numba
+            pydantic
+            matplotlib
+            openmpi
+            mpi4py
+            pytest
+            pytest-mpi
+            pip
+
+      - name: Install DALIA
+        run: |
+          python -m pip install -e ".[solvers]"
+          python -c "from dalia import backend_flags; print(backend_flags)"
+
+      - name: Unit and component integration tests
+        run: python -m pytest tests -v
+
+      - name: Unit and component integration tests (MPI, 2 processes)
+        run: mpirun -n 2 python -m pytest --with-mpi tests -v
+
+      - name: Integration tests
+        run: python tests/integration/runner.py
+
+      - name: Integration tests (MPI, 2 processes)
+        run: mpirun -n 2 python tests/integration/runner.py

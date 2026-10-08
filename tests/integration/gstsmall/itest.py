@@ -14,8 +14,8 @@ from data_generators import generate_spatio_temporal_data  # noqa: E402
 from itest_utils import generate_data  # noqa: E402
 
 # Values used to generate the data
-NX, NY, NT = 16, 16, 12
-N_OBS_PER_STEP = 300
+NX, NY, NT = 10, 10, 10
+N_OBS_PER_STEP = 200
 R_S, R_T, SIGMA_ST = np.log(0.4), np.log(3.0), np.log(1.5)
 BETA = [1.0, -2.0, 0.5, 3.0, -1.5, 2.5]
 PREC_O = 4.0
@@ -23,12 +23,12 @@ PREC_O = 4.0
 ETA_REL_TOL = 1e-1
 THETA_TOL = 5e-1
 MARG_VAR_TOL = 1e-6
-TYPICAL_N_ITER = 17
+TYPICAL_N_ITER = 19
 
-def gst_itest():
+def gstsmall_itest():
     # The data is generated from scratch, no data file of the repository is used
     data_dir = generate_data(
-        "gst",
+        "gstsmall",
         lambda data_dir: generate_spatio_temporal_data(
             data_dir,
             likelihood="gaussian",
@@ -141,4 +141,4 @@ def gst_itest():
     return success_msg
 
 if __name__ == "__main__":
-    gst_itest()
+    gstsmall_itest()

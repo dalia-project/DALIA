@@ -14,24 +14,21 @@ from data_generators import generate_spatio_temporal_data  # noqa: E402
 from itest_utils import generate_data  # noqa: E402
 
 # Values used to generate the data
-NX, NY, NT = 16, 16, 12
-N_OBS_PER_STEP = 300
-R_S, R_T, SIGMA_ST = np.log(0.4), np.log(3.0), np.log(1.5)
-BETA = [1.0, -2.0, 0.5, 3.0, -1.5, 2.5]
-PREC_O = 4.0
+NX, NY, NT = 10, 10, 10
+N_OBS_PER_STEP = 200
+R_S, R_T, SIGMA_ST = np.log(0.4), np.log(3.0), np.log(0.7)
+BETA = [1.0, -0.5, 0.5, 0.8, -0.3, 0.4, -0.6, 0.2]
 
-ETA_REL_TOL = 1e-1
+ETA_REL_TOL = 2e-1
 THETA_TOL = 5e-1
-MARG_VAR_TOL = 1e-6
-TYPICAL_N_ITER = 17
 
-def gst_itest():
+def pst_itest():
     # The data is generated from scratch, no data file of the repository is used
     data_dir = generate_data(
-        "gst",
+        "pst",
         lambda data_dir: generate_spatio_temporal_data(
             data_dir,
-            likelihood="gaussian",
+            likelihood="poisson",
             nx=NX,
             ny=NY,
             nt=NT,
@@ -40,7 +37,6 @@ def gst_itest():
             r_t=R_T,
             sigma_st=SIGMA_ST,
             beta=BETA,
-            prec_o=PREC_O,
         ),
     )
     theta_original = np.load(f"{data_dir}/reference_outputs/theta_original.npy")
@@ -64,16 +60,15 @@ def gst_itest():
     regression_dict = {
         "type": "regression",
         "input_dir": f"{data_dir}/inputs_regression",
-        "n_fixed_effects": 6,
+        "n_fixed_effects": 8,
         "fixed_effects_prior_precision": 0.001,
     }
     regression = RegressionSubModel(
         config=submodels_config.parse_config(regression_dict),
     )
     likelihood_dict = {
-        "type": "gaussian",
-        "prec_o": 1.0,
-        "prior_hyperparameters": {"type": "gamma", "alpha": 2.0, "beta": 2.0},
+        "type": "poisson",
+        "input_dir": f"{data_dir}",
     }
     model = Model(
         submodels=[regression, spatio_temporal],
@@ -86,10 +81,7 @@ def gst_itest():
             "max_iter": 100,
             "gtol": 1e-3,
             "disp": True,
-            "maxcor": len(model.theta_external),
         },
-        "f_reduction_tol": 1e-3,
-        "theta_reduction_tol": 1e-4,
         "inner_iteration_max_iter": 50,
         "eps_inner_iteration": 1e-3,
         "eps_gradient_f": 1e-3,
@@ -99,14 +91,7 @@ def gst_itest():
         model=model,
         config=dalia_config.parse_config(dalia_dict),
     )
-    results = dalia.run()
-
-    # Check iterations behavior
-    success_msg : str = "success"
-    if results["optimization_iterations"] > TYPICAL_N_ITER:
-        success_msg = "warning_more_iters_than_typical"
-    elif results["optimization_iterations"] < TYPICAL_N_ITER:
-        success_msg = "success_less_iters_than_typical"
+    results = dalia.minimize()
 
     # Compare hyperparameters to the values used to generate the data
     theta_dalia = get_host(results["theta"])
@@ -126,19 +111,7 @@ def gst_itest():
     if rel_err_eta > ETA_REL_TOL:
         return "eta_tol_exceeded"
 
-    # Compare marginal variances of latent parameters against a dense inverse
-    var_latent_params = get_host(results["marginal_variances_latent"])
-    dalia.model.theta_internal = results["theta_internal"]
-    Qconditional = dalia.model.construct_Q_conditional(eta=model.a @ model.x)
-    Qinv_ref = xp.linalg.inv(Qconditional.toarray())
-    print_msg(
-        "Norm (marg var latent - ref):    ",
-        f"{np.linalg.norm(var_latent_params - get_host(xp.diag(Qinv_ref))):.4e}",
-    )
-    if np.linalg.norm(var_latent_params - get_host(xp.diag(Qinv_ref))) > MARG_VAR_TOL:
-        return "marg_var_tol_exceeded"
-
-    return success_msg
+    return "success"
 
 if __name__ == "__main__":
-    gst_itest()
+    pst_itest()

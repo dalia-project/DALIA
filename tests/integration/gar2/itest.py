@@ -7,64 +7,45 @@ from dalia.configs import likelihood_config, dalia_config, submodels_config
 from dalia.core.model import Model
 from dalia.core.dalia import DALIA
 from dalia.utils import print_msg, get_host
-from dalia.submodels import RegressionSubModel, SpatioTemporalSubModel
+from dalia.submodels import RegressionSubModel, AR2SubModel
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
-from data_generators import generate_spatio_temporal_data  # noqa: E402
-from itest_utils import generate_data  # noqa: E402
+from itest_utils import generate_example_data  # noqa: E402
 
-# Values used to generate the data
-NX, NY, NT = 16, 16, 12
-N_OBS_PER_STEP = 300
-R_S, R_T, SIGMA_ST = np.log(0.4), np.log(3.0), np.log(1.5)
-BETA = [1.0, -2.0, 0.5, 3.0, -1.5, 2.5]
-PREC_O = 4.0
+SCRIPT_DIR = Path(__file__).resolve()
+DALIA_DIR = SCRIPT_DIR.parent.parent.parent.parent
+EXAMPLE_PATH = DALIA_DIR / "examples" / "g_ar2"
 
+THETA_REL_TOL = 2e-1
 ETA_REL_TOL = 1e-1
-THETA_TOL = 5e-1
 MARG_VAR_TOL = 1e-6
-TYPICAL_N_ITER = 17
+TYPICAL_N_ITER = 19
 
-def gst_itest():
-    # The data is generated from scratch, no data file of the repository is used
-    data_dir = generate_data(
-        "gst",
-        lambda data_dir: generate_spatio_temporal_data(
-            data_dir,
-            likelihood="gaussian",
-            nx=NX,
-            ny=NY,
-            nt=NT,
-            n_obs_per_step=N_OBS_PER_STEP,
-            r_s=R_S,
-            r_t=R_T,
-            sigma_st=SIGMA_ST,
-            beta=BETA,
-            prec_o=PREC_O,
-        ),
-    )
+def gar2_itest():
+    # The inputs of this example are not tracked, generate them from scratch
+    data_dir = generate_example_data(EXAMPLE_PATH)
+
+    # load the values used to generate the data
     theta_original = np.load(f"{data_dir}/reference_outputs/theta_original.npy")
     x_original = np.load(f"{data_dir}/reference_outputs/x_original.npy")
 
-    spatio_temporal_dict = {
-        "type": "spatio_temporal",
-        "input_dir": f"{data_dir}/inputs_spatio_temporal",
-        "spatial_domain_dimension": 2,
-        "r_s": 0,
-        "r_t": 0,
-        "sigma_st": 0,
-        "manifold": "plane",
-        "ph_s": {"type": "penalized_complexity", "alpha": 0.01, "u": 0.1},
-        "ph_t": {"type": "penalized_complexity", "alpha": 0.01, "u": 1},
-        "ph_st": {"type": "penalized_complexity", "alpha": 0.01, "u": 3},
+    ar2_dict = {
+        "type": "ar2",
+        "input_dir": f"{data_dir}/inputs_ar2",
+        "pacf1": 0.3,
+        "ph_pacf1": {"type": "beta", "alpha": 2.0, "beta": 2.0, "support": [-1.0, 1.0]},
+        "pacf2": 0.1,
+        "ph_pacf2": {"type": "beta", "alpha": 2.0, "beta": 2.0, "support": [-1.0, 1.0]},
+        "tau": 3,  # has to be positive
+        "ph_tau": {"type": "gamma", "alpha": 2.0, "beta": 1.0},
     }
-    spatio_temporal = SpatioTemporalSubModel(
-        config=submodels_config.parse_config(spatio_temporal_dict),
+    ar2 = AR2SubModel(
+        config=submodels_config.parse_config(ar2_dict),
     )
     regression_dict = {
         "type": "regression",
         "input_dir": f"{data_dir}/inputs_regression",
-        "n_fixed_effects": 6,
+        "n_fixed_effects": 1,
         "fixed_effects_prior_precision": 0.001,
     }
     regression = RegressionSubModel(
@@ -72,16 +53,16 @@ def gst_itest():
     )
     likelihood_dict = {
         "type": "gaussian",
-        "prec_o": 1.0,
-        "prior_hyperparameters": {"type": "gamma", "alpha": 2.0, "beta": 2.0},
+        "prec_o": 20,
+        "prior_hyperparameters": {"type": "gamma", "alpha": 2.0, "beta": 0.01},
     }
     model = Model(
-        submodels=[regression, spatio_temporal],
+        submodels=[ar2, regression],
         likelihood_config=likelihood_config.parse_config(likelihood_dict),
     )
     # Configurations of DALIA
     dalia_dict = {
-        "solver": {"type": "serinv"},
+        "solver": {"type": "dense"},
         "minimize": {
             "max_iter": 100,
             "gtol": 1e-3,
@@ -109,19 +90,18 @@ def gst_itest():
         success_msg = "success_less_iters_than_typical"
 
     # Compare hyperparameters to the values used to generate the data
-    theta_dalia = get_host(results["theta"])
-    print(f"theta_original: {theta_original}")
-    print(f"theta_dalia: {theta_dalia}")
-    # . relative error for the large values, absolute error for the small ones
-    err_theta = np.abs(theta_dalia - theta_original) / np.maximum(1.0, np.abs(theta_original))
-    print_msg("Max error (theta - theta_original): ", f"{np.max(err_theta):.4e}")
-    if np.max(err_theta) > THETA_TOL:
+    theta_user = get_host(results["theta"])
+    print("theta_original: ", theta_original)
+    print("theta_dalia: ", theta_user)
+    rel_err_theta = np.abs(theta_user - theta_original) / np.abs(theta_original)
+    print_msg("Max relative error (theta - theta_original): ", f"{np.max(rel_err_theta):.4e}")
+    if np.max(rel_err_theta) > THETA_REL_TOL:
         return "theta_tol_exceeded"
 
     # Compare the linear predictor to the one used to generate the data
     eta_original = get_host(model.a @ xp.asarray(x_original))
     eta_dalia = get_host(model.a @ results["x"])
-    rel_err_eta = np.linalg.norm(eta_dalia - eta_original) / np.linalg.norm(eta_original)
+    rel_err_eta = np.linalg.norm(eta_original - eta_dalia) / np.linalg.norm(eta_original)
     print_msg("Normalized norm (eta - eta_original): ", f"{rel_err_eta:.4e}")
     if rel_err_eta > ETA_REL_TOL:
         return "eta_tol_exceeded"
@@ -141,4 +121,4 @@ def gst_itest():
     return success_msg
 
 if __name__ == "__main__":
-    gst_itest()
+    gar2_itest()

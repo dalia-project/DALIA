@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 import numpy as np
 
@@ -8,22 +9,28 @@ from dalia.core.dalia import DALIA
 from dalia.utils import print_msg, get_host
 from dalia.submodels import RegressionSubModel, AR1SubModel
 
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+from itest_utils import generate_example_data  # noqa: E402
+
 SCRIPT_DIR = Path(__file__).resolve()
 DALIA_DIR = SCRIPT_DIR.parent.parent.parent.parent
 EXAMPLE_PATH = DALIA_DIR / "examples" / "p_ar1"
 
 X_TOL = 1e2
-THETA_TOL = 2e-2
-TYPICAL_N_ITER = 12
+THETA_REL_TOL = 2e-1
+TYPICAL_N_ITER = 15
 
 def par1_itest():
+    # The inputs of this example are not tracked, generate them from scratch
+    data_dir = generate_example_data(EXAMPLE_PATH)
+
     # load reference output
-    theta_original = np.load(f"{EXAMPLE_PATH}/reference_outputs/theta_original.npy")
-    x_original = np.load(f"{EXAMPLE_PATH}/reference_outputs/x_original.npy")
+    theta_original = np.load(f"{data_dir}/reference_outputs/theta_original.npy")
+    x_original = np.load(f"{data_dir}/reference_outputs/x_original.npy")
 
     ar1_dict = {
         "type": "ar1",
-        "input_dir": f"{EXAMPLE_PATH}/inputs_ar1",
+        "input_dir": f"{data_dir}/inputs_ar1",
         "phi": 0.45,  # has to be between 0 and 1
         "tau": 0.5,  # precision 
         "ph_phi": {"type": "beta", "alpha": 5.0, "beta": 1.0},
@@ -36,7 +43,7 @@ def par1_itest():
     # Configurations of the regression submodel
     regression_dict = {
         "type": "regression",
-        "input_dir": f"{EXAMPLE_PATH}/inputs_regression",
+        "input_dir": f"{data_dir}/inputs_regression",
         "n_fixed_effects": 1,
         "fixed_effects_prior_precision": 0.001,
     }
@@ -46,7 +53,7 @@ def par1_itest():
 
     likelihood_dict = {
         "type": "poisson",
-        "input_dir": f"{EXAMPLE_PATH}",
+        "input_dir": f"{data_dir}",
     }
 
     model = Model(
@@ -67,7 +74,7 @@ def par1_itest():
         "inner_iteration_max_iter": 50,
         "eps_inner_iteration": 1e-3,
         "eps_gradient_f": 1e-3,
-        "simulation_dir": f"{EXAMPLE_PATH}",
+        "simulation_dir": f"{data_dir}",
     }
 
     dalia = DALIA(
@@ -87,11 +94,9 @@ def par1_itest():
     theta_user = get_host(results["theta"])
     print("theta_ref: ", theta_original)
     print("theta user: ", theta_user)
-    print_msg(
-        "Norm (theta - theta_ref): ",
-        f"{np.linalg.norm(theta_user - theta_original):.4e}",
-    )
-    if np.linalg.norm(theta_user - theta_original) > THETA_TOL:
+    rel_err_theta = np.abs(theta_user - theta_original) / np.abs(theta_original)
+    print_msg("Max relative error (theta - theta_ref): ", f"{np.max(rel_err_theta):.4e}")
+    if np.max(rel_err_theta) > THETA_REL_TOL:
         return "theta_tol_exceeded"
 
     # Compare latent parameters

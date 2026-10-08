@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 import numpy as np
 
@@ -7,27 +8,41 @@ from dalia.core.dalia import DALIA
 from dalia.utils import print_msg, get_host
 from dalia.submodels import RegressionSubModel
 
-SCRIPT_DIR = Path(__file__).resolve()
-DALIA_DIR = SCRIPT_DIR.parent.parent.parent.parent
-EXAMPLE_PATH = DALIA_DIR / "examples" / "pr"
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+from data_generators import generate_regression_data  # noqa: E402
+from itest_utils import generate_data  # noqa: E402
 
-X_TOL = 1e-5
+# Values used to generate the data
+N_OBS = 500
+BETA = [1.0, -2.0, 0.5, 3.0, -1.5, 2.5]
+
+X_REL_TOL = 5e-2
 
 def pr_itest():
-    # Configurations of the regression submodel
+    # The data is generated from scratch, no data file of the repository is used
+    data_dir = generate_data(
+        "pr",
+        lambda data_dir: generate_regression_data(
+            data_dir,
+            likelihood="poisson",
+            n_obs=N_OBS,
+            beta=BETA,
+        ),
+    )
+    x_original = np.load(f"{data_dir}/reference_outputs/x_original.npy")
+
     regression_dict = {
         "type": "regression",
-        "input_dir": f"{EXAMPLE_PATH}/inputs",
+        "input_dir": f"{data_dir}/inputs",
         "n_fixed_effects": 6,
         "fixed_effects_prior_precision": 0.001,
     }
     regression = RegressionSubModel(
         config=submodels_config.parse_config(regression_dict),
     )
-    # Likelihood
     likelihood_dict = {
         "type": "poisson",
-        "input_dir": f"{EXAMPLE_PATH}",
+        "input_dir": f"{data_dir}",
     }
     model = Model(
         submodels=[regression],
@@ -44,7 +59,7 @@ def pr_itest():
         "inner_iteration_max_iter": 50,
         "eps_inner_iteration": 1e-3,
         "eps_gradient_f": 1e-3,
-        "simulation_dir": f"{EXAMPLE_PATH}",
+        "simulation_dir": f"{data_dir}",
     }
     dalia = DALIA(
         model=model,
@@ -52,15 +67,13 @@ def pr_itest():
     )
     results = dalia.run()
 
-    # Compare latent parameters
-    x_ref = np.load(f"{EXAMPLE_PATH}/reference_outputs/x_ref.npy")
-    print(f"x_ref: {x_ref}")
-    print(f"x_dalia: {get_host(results['x'])}")
-    print_msg(
-        "Norm (x - x_ref):                ",
-        f"{np.linalg.norm(get_host(results['x']) - x_ref):.4e}",
-    )
-    if np.linalg.norm(get_host(results["x"]) - x_ref) > X_TOL:
+    # Compare latent parameters to the values used to generate the data
+    x_dalia = get_host(results["x"])
+    print(f"x_original: {x_original}")
+    print(f"x_dalia: {x_dalia}")
+    rel_err_x = np.linalg.norm(x_dalia - x_original) / np.linalg.norm(x_original)
+    print_msg("Normalized norm (x - x_original): ", f"{rel_err_x:.4e}")
+    if rel_err_x > X_REL_TOL:
         return "x_tol_exceeded"
 
     return "success"

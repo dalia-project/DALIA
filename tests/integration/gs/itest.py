@@ -7,38 +7,35 @@ from dalia.configs import likelihood_config, dalia_config, submodels_config
 from dalia.core.model import Model
 from dalia.core.dalia import DALIA
 from dalia.utils import print_msg, get_host
-from dalia.submodels import RegressionSubModel, SpatioTemporalSubModel
+from dalia.submodels import RegressionSubModel, SpatialSubModel
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
-from data_generators import generate_spatio_temporal_data  # noqa: E402
+from data_generators import generate_spatial_data  # noqa: E402
 from itest_utils import generate_data  # noqa: E402
 
 # Values used to generate the data
-NX, NY, NT = 16, 16, 12
-N_OBS_PER_STEP = 300
-R_S, R_T, SIGMA_ST = np.log(0.4), np.log(3.0), np.log(1.5)
-BETA = [1.0, -2.0, 0.5, 3.0, -1.5, 2.5]
+NX, NY = 15, 15
+N_OBS = 600
+R_S, SIGMA_E = np.log(0.4), np.log(1.5)
+BETA = [1.0, -2.0, 0.5, 3.0, -1.5]
 PREC_O = 4.0
 
 ETA_REL_TOL = 1e-1
 THETA_TOL = 5e-1
 MARG_VAR_TOL = 1e-6
-TYPICAL_N_ITER = 17
+TYPICAL_N_ITER = 12
 
-def gst_itest():
+def gs_itest():
     # The data is generated from scratch, no data file of the repository is used
     data_dir = generate_data(
-        "gst",
-        lambda data_dir: generate_spatio_temporal_data(
+        "gs",
+        lambda data_dir: generate_spatial_data(
             data_dir,
-            likelihood="gaussian",
             nx=NX,
             ny=NY,
-            nt=NT,
-            n_obs_per_step=N_OBS_PER_STEP,
+            n_obs=N_OBS,
             r_s=R_S,
-            r_t=R_T,
-            sigma_st=SIGMA_ST,
+            sigma_e=SIGMA_E,
             beta=BETA,
             prec_o=PREC_O,
         ),
@@ -46,25 +43,22 @@ def gst_itest():
     theta_original = np.load(f"{data_dir}/reference_outputs/theta_original.npy")
     x_original = np.load(f"{data_dir}/reference_outputs/x_original.npy")
 
-    spatio_temporal_dict = {
-        "type": "spatio_temporal",
-        "input_dir": f"{data_dir}/inputs_spatio_temporal",
+    spatial_dict = {
+        "type": "spatial",
+        "input_dir": f"{data_dir}/inputs_spatial",
         "spatial_domain_dimension": 2,
         "r_s": 0,
-        "r_t": 0,
-        "sigma_st": 0,
-        "manifold": "plane",
+        "sigma_e": 0,
         "ph_s": {"type": "penalized_complexity", "alpha": 0.01, "u": 0.1},
-        "ph_t": {"type": "penalized_complexity", "alpha": 0.01, "u": 1},
-        "ph_st": {"type": "penalized_complexity", "alpha": 0.01, "u": 3},
+        "ph_e": {"type": "penalized_complexity", "alpha": 0.01, "u": 5},
     }
-    spatio_temporal = SpatioTemporalSubModel(
-        config=submodels_config.parse_config(spatio_temporal_dict),
+    spatial = SpatialSubModel(
+        config=submodels_config.parse_config(spatial_dict),
     )
     regression_dict = {
         "type": "regression",
         "input_dir": f"{data_dir}/inputs_regression",
-        "n_fixed_effects": 6,
+        "n_fixed_effects": 5,
         "fixed_effects_prior_precision": 0.001,
     }
     regression = RegressionSubModel(
@@ -76,12 +70,12 @@ def gst_itest():
         "prior_hyperparameters": {"type": "gamma", "alpha": 2.0, "beta": 2.0},
     }
     model = Model(
-        submodels=[regression, spatio_temporal],
+        submodels=[spatial, regression],
         likelihood_config=likelihood_config.parse_config(likelihood_dict),
     )
     # Configurations of DALIA
     dalia_dict = {
-        "solver": {"type": "serinv"},
+        "solver": {"type": "scipy"},
         "minimize": {
             "max_iter": 100,
             "gtol": 1e-3,
@@ -141,4 +135,4 @@ def gst_itest():
     return success_msg
 
 if __name__ == "__main__":
-    gst_itest()
+    gs_itest()
