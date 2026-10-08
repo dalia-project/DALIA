@@ -30,9 +30,9 @@ if __name__ == "__main__":
     ar1_dict = {
         "type": "ar1",
         "input_dir": f"{BASE_DIR}/inputs_ar1",
-        "phi": 0.45,  # has to be between 0 and 1
+        "phi": 0.45,  # has to be between -1 and 1
         "tau": 0.5,  # precision 
-        "ph_phi": {"type": "beta", "alpha": 5.0, "beta": 1.0},
+        "ph_phi": {"type": "beta", "alpha": 5.0, "beta": 1.0, "support": [-1.0, 1.0]},
         "ph_tau": {"type": "gamma", "alpha": 2.0, "beta": 0.5},
     }
     ar1 = AR1SubModel(
