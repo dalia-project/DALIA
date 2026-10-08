@@ -6,7 +6,7 @@ from dalia import xp
 from dalia.configs import likelihood_config, dalia_config, submodels_config
 from dalia.core.model import Model
 from dalia.core.dalia import DALIA
-from dalia.submodels import AR2SubModel, RegressionSubModel
+from dalia.submodels import ARSubModel, RegressionSubModel
 from dalia.utils import print_msg, plot_marginal_distributions_hp, plot_prior_hp
 
 BASE_DIR: Path = Path(__file__).parent
@@ -27,20 +27,22 @@ if __name__ == "__main__":
     print("dim(x original): ", x_original.shape)
 
     ar2_dict = {
-        "type": "ar2",
+        "type": "ar",
+        "order": 2,
         "input_dir": f"{BASE_DIR}/inputs_ar2",
         # partial autocorrelations, both have to be between -1 and 1;
         # the beta prior is scaled to the support (-1, 1) and Beta(2, 2) is
         # symmetric around 0
-        "pacf1": 0.3,
-        "ph_pacf1": {"type": "beta", "alpha": 2.0, "beta": 2.0, "support": [-1.0, 1.0]},
-        "pacf2": 0.1,
-        "ph_pacf2": {"type": "beta", "alpha": 2.0, "beta": 2.0, "support": [-1.0, 1.0]},
+        "pacf": [0.3, 0.1],
+        "ph_pacf": [
+            {"type": "beta", "alpha": 2.0, "beta": 2.0, "support": [-1.0, 1.0]},
+            {"type": "beta", "alpha": 2.0, "beta": 2.0, "support": [-1.0, 1.0]},
+        ],
         # initial guess on the precision
         "tau": 3,  # has to be positive
         "ph_tau": {"type": "gamma", "alpha": 2.0, "beta": 1.0},
     }
-    ar2 = AR2SubModel(
+    ar2 = ARSubModel(
         config=submodels_config.parse_config(ar2_dict),
     )
 
@@ -150,7 +152,13 @@ if __name__ == "__main__":
     )
 
     print_msg("\n--- Marginal distributions of the hyperparameters ---")
-    marginals_hp = dalia.marginal_distributions_hp()
+    # derived=True adds the marginal distributions of the AR coefficients phi,
+    # which are sampled from the joint distribution of the partial autocorrelations
+    marginals_hp = dalia.marginal_distributions_hp(
+        derived=True,
+        n_samples=10000,
+        seed=0,
+    )
 
     fig, axes = plot_marginal_distributions_hp(marginals_hp)
     import matplotlib.pyplot as plt
@@ -160,6 +168,11 @@ if __name__ == "__main__":
         quantile_pairs = marginals_hp["hyperparameters"][key]["quantiles"]["external"]["pairs"]
         print(f"Quantile pairs of {key}:")
         for p, q in quantile_pairs:
+            print(f"   {p:.3f} quantile: {q:.4f}")
+
+    for key, marginal in marginals_hp["derived"].items():
+        print(f"Quantile pairs of {key}:")
+        for p, q in marginal["quantiles"]["external"]["pairs"]:
             print(f"   {p:.3f} quantile: {q:.4f}")
 
     print_msg("\n--- Finished ---")

@@ -1029,9 +1029,11 @@ class DALIA:
 
         return hess
 
-    def marginal_distributions_hp(self, 
+    def marginal_distributions_hp(self,
                                   #quantiles: NDArray = xp.array([0.0001, 0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.975, 0.9999])
-                                  quantiles: NDArray = xp.array([0.025, 0.25, 0.5, 0.75, 0.975])
+                                  quantiles: NDArray = xp.array([0.025, 0.25, 0.5, 0.75, 0.975]),
+                                  derived: bool = False,
+                                  **derived_kwargs,
                                   ) -> dict:
         """Compute the marginal distributions of the hyperparameters theta.
 
@@ -1039,6 +1041,11 @@ class DALIA:
         ----------
         quantiles : NDArray
             Quantiles to compute. If not provided, default quantiles are used. If None, no quantiles are computed.
+        derived : bool
+            If True, also compute the marginal distributions of the derived hyperparameters of the submodels
+            (e.g. the AR coefficients of the AR submodel) and store them under the key 'derived'.
+        derived_kwargs : dict
+            Options passed on to the submodels for the computation of their derived hyperparameters.
 
         Returns
         -------
@@ -1134,6 +1141,24 @@ class DALIA:
                 results['hyperparameters'][param_name] = param_dict
 
             hp_offset += n_hp_for_this_prior-1
+
+        if derived:
+            results['derived'] = {}
+            for i, submodel in enumerate(self.model.submodels):
+                idx = slice(
+                    self.model.hyperparameters_idx[i],
+                    self.model.hyperparameters_idx[i + 1],
+                )
+                results['derived'].update(
+                    submodel.derived_hyperparameters(
+                        theta_internal=self.theta_star_internal[idx],
+                        cov_theta_internal=self.cov_theta_internal[idx, idx],
+                        prior_hyperparameters=self.model.prior_hyperparameters[idx],
+                        quantiles=quantiles,
+                        **derived_kwargs,
+                    )
+                )
+
 
         # Old code
         if False:

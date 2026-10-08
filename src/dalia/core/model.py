@@ -32,8 +32,7 @@ from dalia.submodels import (
     RegressionSubModel,
     SpatialSubModel,
     SpatioTemporalSubModel,
-    AR1SubModel,
-    AR2SubModel,
+    ARSubModel,
 )
 from dalia.utils import add_str_header, boxify, scaled_logit
 from dalia.utils.scalar_ndarray import ensure_scalar
@@ -162,67 +161,24 @@ class Model(ABC):
             elif isinstance(submodel, RegressionSubModel):
                 self.n_fixed_effects += submodel.n_fixed_effects
 
-            elif isinstance(submodel, AR1SubModel):
+            elif isinstance(submodel, ARSubModel):
 
-                if isinstance(submodel.config.ph_phi, BetaPriorHyperparametersConfig):
-                    self.prior_hyperparameters.append(
-                        BetaPriorHyperparameters(
-                            config=submodel.config.ph_phi,
-                        )
-                    )
-                elif isinstance(
-                    submodel.config.ph_phi,
-                    PenalizedComplexityPriorHyperparametersConfig,
-                ):
-                    self.prior_hyperparameters.append(
-                        PenalizedComplexityPriorHyperparameters(
-                            config=submodel.config.ph_phi,
-                            hyperparameter_type="phi",
-                        )
-                    )
-
-                if isinstance(
-                    submodel.config.ph_tau, GaussianPriorHyperparametersConfig
-                ):
-                    self.prior_hyperparameters.append(
-                        GaussianPriorHyperparameters(
-                            config=submodel.config.ph_tau,
-                        )
-                    )
-                if isinstance(submodel.config.ph_tau, GammaPriorHyperparametersConfig):
-                    self.prior_hyperparameters.append(
-                        GammaPriorHyperparameters(
-                            config=submodel.config.ph_tau,
-                        )
-                    )
-                else:
-                    raise ValueError("Unknown prior hyperparameter type for ph_tau")
-
-            elif isinstance(submodel, AR2SubModel):
-
-                for ph_pacf, hp_type in [
-                    (submodel.config.ph_pacf1, "pacf1"),
-                    (submodel.config.ph_pacf2, "pacf2"),
-                ]:
+                # one prior per partial autocorrelation: pacf1, ..., pacfp
+                for k, ph_pacf in enumerate(submodel.config.ph_pacf, start=1):
                     if isinstance(ph_pacf, BetaPriorHyperparametersConfig):
                         self.prior_hyperparameters.append(
                             BetaPriorHyperparameters(
                                 config=ph_pacf,
                             )
                         )
-                    elif isinstance(
-                        ph_pacf,
-                        PenalizedComplexityPriorHyperparametersConfig,
-                    ):
-                        self.prior_hyperparameters.append(
-                            PenalizedComplexityPriorHyperparameters(
-                                config=ph_pacf,
-                                hyperparameter_type=hp_type,
-                            )
-                        )
                     else:
+                        # The penalized complexity prior has no implementation
+                        # for correlation type hyperparameters (it evaluates to
+                        # a flat, unbounded prior) and the remaining priors do
+                        # not map (-1, 1) to the internal scale.
                         raise ValueError(
-                            f"Unknown prior hyperparameter type for ph_{hp_type}"
+                            f"Unsupported prior hyperparameter type for pacf{k} of "
+                            "the AR(p) submodel: only 'beta' is supported."
                         )
 
                 if isinstance(
@@ -514,22 +470,13 @@ class Model(ABC):
                             self.theta_external[hp_idx]
                         )
                         # kwargs[self.theta_keys[hp_idx]] = float(theta_interpret[hp_idx])
-                elif isinstance(submodel, AR1SubModel):
+                elif isinstance(submodel, ARSubModel):
                     for hp_idx in range(
                         self.hyperparameters_idx[i], self.hyperparameters_idx[i + 1]
                     ):
                         kwargs[self.theta_keys[hp_idx]] = float(
                             self.theta_external[hp_idx]
                         )
-                        # kwargs[self.theta_keys[hp_idx]] = float(theta_interpret[hp_idx])
-                elif isinstance(submodel, AR2SubModel):
-                    for hp_idx in range(
-                        self.hyperparameters_idx[i], self.hyperparameters_idx[i + 1]
-                    ):
-                        kwargs[self.theta_keys[hp_idx]] = float(
-                            self.theta_external[hp_idx]
-                        )
-                        # kwargs[self.theta_keys[hp_idx]] = float(theta_interpret[hp_idx])
                 elif isinstance(submodel, RegressionSubModel):
                     ...
 
@@ -582,22 +529,13 @@ class Model(ABC):
                             self.theta_external[hp_idx]
                         )
                         # kwargs[self.theta_keys[hp_idx]] = float(theta_interpret[hp_idx])
-                elif isinstance(submodel, AR1SubModel):
+                elif isinstance(submodel, ARSubModel):
                     for hp_idx in range(
                         self.hyperparameters_idx[i], self.hyperparameters_idx[i + 1]
                     ):
                         kwargs[self.theta_keys[hp_idx]] = float(
                             self.theta_external[hp_idx]
                         )
-                        # kwargs[self.theta_keys[hp_idx]] = float(theta_interpret[hp_idx])
-                elif isinstance(submodel, AR2SubModel):
-                    for hp_idx in range(
-                        self.hyperparameters_idx[i], self.hyperparameters_idx[i + 1]
-                    ):
-                        kwargs[self.theta_keys[hp_idx]] = float(
-                            self.theta_external[hp_idx]
-                        )
-                        # kwargs[self.theta_keys[hp_idx]] = float(theta_interpret[hp_idx])
 
                 submodel_Q_prior = submodel.construct_Q_prior(**kwargs)
 

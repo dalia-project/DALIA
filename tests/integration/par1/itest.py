@@ -6,7 +6,7 @@ from dalia.configs import likelihood_config, dalia_config, submodels_config
 from dalia.core.model import Model
 from dalia.core.dalia import DALIA
 from dalia.utils import print_msg, get_host
-from dalia.submodels import RegressionSubModel, AR1SubModel
+from dalia.submodels import RegressionSubModel, ARSubModel
 
 SCRIPT_DIR = Path(__file__).resolve()
 DALIA_DIR = SCRIPT_DIR.parent.parent.parent.parent
@@ -22,14 +22,15 @@ def par1_itest():
     x_original = np.load(f"{EXAMPLE_PATH}/reference_outputs/x_original.npy")
 
     ar1_dict = {
-        "type": "ar1",
+        "type": "ar",
+        "order": 1,
         "input_dir": f"{EXAMPLE_PATH}/inputs_ar1",
-        "phi": 0.45,  # has to be between 0 and 1
+        "pacf": [0.45],  # has to be between 0 and 1
         "tau": 0.5,  # precision 
-        "ph_phi": {"type": "beta", "alpha": 5.0, "beta": 1.0},
+        "ph_pacf": [{"type": "beta", "alpha": 5.0, "beta": 1.0}],
         "ph_tau": {"type": "gamma", "alpha": 2.0, "beta": 0.5},
     }
-    ar1 = AR1SubModel(
+    ar1 = ARSubModel(
         config=submodels_config.parse_config(ar1_dict),
     )
     

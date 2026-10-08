@@ -4,7 +4,7 @@ import tomllib
 from abc import ABC, abstractmethod
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt, model_validator
 from typing_extensions import Annotated
 
 from dalia.__init__ import ArrayLike, xp
@@ -22,7 +22,7 @@ class SubModelConfig(BaseModel, ABC):
 
     # Input folder for this specific submodel
     input_dir: str = None
-    type: Literal["spatio_temporal", "spatial", "regression", "brainiac", "ar1", "ar2"] = None
+    type: Literal["spatio_temporal", "spatial", "regression", "brainiac", "ar"] = None
 
     @abstractmethod
     def read_hyperparameters(self) -> tuple[ArrayLike, list]: ...
@@ -36,54 +36,54 @@ class RegressionSubModelConfig(SubModelConfig):
         return xp.array([]), []
 
 
-class AR1SubModelConfig(SubModelConfig):
+class ARSubModelConfig(SubModelConfig):
 
-    ## prior on phi
-    phi: float = None  # AR(1) coefficient
-    phi_scaled: float = None
-    ph_phi: PriorHyperparametersConfig = None
-    ## check that phi is between -1 and 1 (use pc prior)
-    # check inla.doc("pc.cor1")
+    ## Stationary AR(p) process of arbitrary order p >= 1, parametrized through
+    ## its partial autocorrelations pacf[0], ..., pacf[p-1], each in (-1, 1),
+    ## which guarantees stationarity. The AR coefficients follow from the
+    ## Durbin-Levinson recursion.
+    ## Use beta priors with support (-1, 1) to cover the full range; the
+    ## default beta support (0, 1) restricts a pacf to positive values.
+    order: Annotated[int, Field(strict=True, ge=1)]
+    pacf: list[float]  # partial autocorrelations, one per lag
+    ph_pacf: list[PriorHyperparametersConfig]  # one prior per pacf
 
-    ## either define tau or sigma2
-    tau: float = None  # Precision
-    # sigma2: float = None  # Marginal variance
-    
-    
-    ph_tau: PriorHyperparametersConfig = None
-    # ph_sigma2: PriorHyperparametersConfig = None
+    ## marginal precision of the process, Var(x_t) = 1 / tau
+    ## (not the innovation precision)
+    tau: float  # Precision
+    ph_tau: PriorHyperparametersConfig
+
+    @model_validator(mode="after")
+    def _check_hyperparameters(self):
+        if len(self.pacf) != self.order:
+            raise ValueError(
+                f"AR({self.order}) requires {self.order} partial autocorrelations, "
+                f"got {len(self.pacf)}."
+            )
+        if len(self.ph_pacf) != self.order:
+            raise ValueError(
+                f"AR({self.order}) requires one prior per partial autocorrelation "
+                f"({self.order}), got {len(self.ph_pacf)}."
+            )
+        for k, (pacf, ph_pacf) in enumerate(zip(self.pacf, self.ph_pacf), start=1):
+            # also rejects nan and +/- inf
+            if not -1.0 < pacf < 1.0:
+                raise ValueError(f"pacf{k} must be in (-1, 1), got {pacf}.")
+            if isinstance(ph_pacf, BetaPriorHyperparametersConfig):
+                lower, upper = ph_pacf.support
+                if not lower < pacf < upper:
+                    raise ValueError(
+                        f"pacf{k} = {pacf} is outside the support "
+                        f"({lower}, {upper}) of its beta prior."
+                    )
+        if not 0.0 < self.tau < float("inf"):
+            raise ValueError(f"tau must be finite and positive, got {self.tau}.")
+        return self
 
     def read_hyperparameters(self):
 
-        # input of phi is in (0,1), rescale to -/+ INF
-        #self.phi_scaled = scaled_logit(self.phi, direction="forward")
-        theta = xp.array([self.phi, self.tau])
-        #theta_internal = xp.array([self.phi, self.tau])
-        theta_keys = ["phi", "tau"]
-
-        return theta, theta_keys
-
-
-class AR2SubModelConfig(SubModelConfig):
-
-    ## The AR(2) process is parametrized through its partial autocorrelations
-    ## (pacf1, pacf2), each in (-1, 1), which guarantees stationarity.
-    ## The AR coefficients follow as phi2 = pacf2 and phi1 = pacf1 * (1 - pacf2).
-    ## Use a beta prior with support (-1, 1) to cover the full range; the
-    ## default beta support (0, 1) restricts the pacf to positive values.
-    pacf1: float = None  # first partial autocorrelation (= lag-1 autocorrelation)
-    pacf2: float = None  # second partial autocorrelation (= phi2)
-    ph_pacf1: PriorHyperparametersConfig = None
-    ph_pacf2: PriorHyperparametersConfig = None
-
-    ## marginal precision of the process
-    tau: float = None  # Precision
-    ph_tau: PriorHyperparametersConfig = None
-
-    def read_hyperparameters(self):
-
-        theta = xp.array([self.pacf1, self.pacf2, self.tau])
-        theta_keys = ["pacf1", "pacf2", "tau"]
+        theta = xp.array([*self.pacf, self.tau])
+        theta_keys = [f"pacf{k}" for k in range(1, self.order + 1)] + ["tau"]
 
         return theta, theta_keys
 
@@ -167,13 +167,13 @@ def parse_config(config: dict | str) -> SubModelConfig:
         config["ph_h2"] = parse_priorhyperparameters_config(config["ph_h2"])
         config["ph_alpha"] = parse_priorhyperparameters_config(config["ph_alpha"])
         return BrainiacSubModelConfig(**config)
-    if model_type == "ar1":
+    if model_type == "ar":
         config["ph_tau"] = parse_priorhyperparameters_config(config["ph_tau"])
-        config["ph_phi"] = parse_priorhyperparameters_config(config["ph_phi"])
-        return AR1SubModelConfig(**config)
-    if model_type == "ar2":
-        config["ph_tau"] = parse_priorhyperparameters_config(config["ph_tau"])
-        config["ph_pacf1"] = parse_priorhyperparameters_config(config["ph_pacf1"])
-        config["ph_pacf2"] = parse_priorhyperparameters_config(config["ph_pacf2"])
-        return AR2SubModelConfig(**config)
+        ph_pacf = config["ph_pacf"]
+        if not isinstance(ph_pacf, (list, tuple)):
+            raise ValueError(
+                "ph_pacf must be a list with one prior per partial autocorrelation."
+            )
+        config["ph_pacf"] = [parse_priorhyperparameters_config(ph) for ph in ph_pacf]
+        return ARSubModelConfig(**config)
     raise ValueError(f"Unknown submodel type: {model_type}")

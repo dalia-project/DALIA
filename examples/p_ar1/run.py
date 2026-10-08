@@ -10,7 +10,7 @@ from dalia import xp
 from dalia.configs import likelihood_config, dalia_config, submodels_config
 from dalia.core.model import Model
 from dalia.core.dalia import DALIA
-from dalia.submodels import AR1SubModel, RegressionSubModel
+from dalia.submodels import ARSubModel, RegressionSubModel
 from dalia.utils import get_host, print_msg  # , extract_diagonal
 
 
@@ -28,14 +28,15 @@ if __name__ == "__main__":
     print("dim(x original): ", x_original.shape)
 
     ar1_dict = {
-        "type": "ar1",
+        "type": "ar",
+        "order": 1,
         "input_dir": f"{BASE_DIR}/inputs_ar1",
-        "phi": 0.45,  # has to be between 0 and 1
+        "pacf": [0.45],  # has to be between 0 and 1
         "tau": 0.5,  # precision 
-        "ph_phi": {"type": "beta", "alpha": 5.0, "beta": 1.0},
+        "ph_pacf": [{"type": "beta", "alpha": 5.0, "beta": 1.0}],
         "ph_tau": {"type": "gamma", "alpha": 2.0, "beta": 0.5},
     }
-    ar1 = AR1SubModel(
+    ar1 = ARSubModel(
         config=submodels_config.parse_config(ar1_dict),
     )
     
