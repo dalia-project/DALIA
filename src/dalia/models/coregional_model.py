@@ -34,6 +34,13 @@ class CoregionalModel(Model):
         **kwargs,
     ) -> None:
         """Initializes the model."""
+        if kwargs.get("constraints") or any(model.C is not None for model in models):
+            raise NotImplementedError(
+                "Linear constraints are not implemented for the CoregionalModel."
+            )
+        self.C = None
+        self.e = None
+
         self.models: list[Model] = models
 
         # Check the coregionalization type (Spacial or SpatioTemporal)

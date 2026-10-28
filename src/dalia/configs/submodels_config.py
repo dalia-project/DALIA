@@ -16,13 +16,20 @@ from dalia.configs.priorhyperparameters_config import (
 from dalia.configs.priorhyperparameters_config import (
     parse_config as parse_priorhyperparameters_config,
 )
+from dalia.configs.constraints_config import ConstraintConfig
+from dalia.configs.constraints_config import (
+    parse_config as parse_constraints_config,
+)
 
 class SubModelConfig(BaseModel, ABC):
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     # Input folder for this specific submodel
     input_dir: str = None
-    type: Literal["spatio_temporal", "spatial", "regression", "brainiac", "ar1", "ar2"] = None
+    type: Literal["spatio_temporal", "spatial", "regression", "brainiac", "ar1", "ar2", "rw1", "rw2"] = None
+
+    # Linear constraints C x = e on the latent parameters of this submodel
+    constraints: list[ConstraintConfig] = []
 
     @abstractmethod
     def read_hyperparameters(self) -> tuple[ArrayLike, list]: ...
@@ -84,6 +91,42 @@ class AR2SubModelConfig(SubModelConfig):
 
         theta = xp.array([self.pacf1, self.pacf2, self.tau])
         theta_keys = ["pacf1", "pacf2", "tau"]
+
+        return theta, theta_keys
+
+
+class RW1SubModelConfig(SubModelConfig):
+
+    tau: float = None  # Precision of the increments
+    ph_tau: PriorHyperparametersConfig = None
+
+    ## Constant added to the diagonal of the precision matrix of an intrinsic
+    ## submodel, which is rank deficient without it. Not scaled by tau. Same
+    ## default as R-INLA (argument `diagonal` of f()).
+    diagonal: Annotated[float, Field(gt=0)] = 1e-4
+
+    def read_hyperparameters(self):
+
+        theta = xp.array([self.tau])
+        theta_keys = ["tau"]
+
+        return theta, theta_keys
+
+
+class RW2SubModelConfig(SubModelConfig):
+
+    tau: float = None  # Precision of the second differences
+    ph_tau: PriorHyperparametersConfig = None
+
+    ## Constant added to the diagonal of the precision matrix of an intrinsic
+    ## submodel, which is rank deficient without it. Not scaled by tau. Same
+    ## default as R-INLA (argument `diagonal` of f()).
+    diagonal: Annotated[float, Field(gt=0)] = 1e-4
+
+    def read_hyperparameters(self):
+
+        theta = xp.array([self.tau])
+        theta_keys = ["tau"]
 
         return theta, theta_keys
 
@@ -151,6 +194,11 @@ def parse_config(config: dict | str) -> SubModelConfig:
     if isinstance(config, str):
         with open(config, "rb") as f:
             config = tomllib.load(f)
+    if "constraints" in config:
+        config["constraints"] = [
+            parse_constraints_config(constraint) for constraint in config["constraints"]
+        ]
+
     model_type = config.get("type")
     if model_type == "spatio_temporal":
         config["ph_s"] = parse_priorhyperparameters_config(config["ph_s"])
@@ -176,4 +224,10 @@ def parse_config(config: dict | str) -> SubModelConfig:
         config["ph_pacf1"] = parse_priorhyperparameters_config(config["ph_pacf1"])
         config["ph_pacf2"] = parse_priorhyperparameters_config(config["ph_pacf2"])
         return AR2SubModelConfig(**config)
+    if model_type == "rw1":
+        config["ph_tau"] = parse_priorhyperparameters_config(config["ph_tau"])
+        return RW1SubModelConfig(**config)
+    if model_type == "rw2":
+        config["ph_tau"] = parse_priorhyperparameters_config(config["ph_tau"])
+        return RW2SubModelConfig(**config)
     raise ValueError(f"Unknown submodel type: {model_type}")
