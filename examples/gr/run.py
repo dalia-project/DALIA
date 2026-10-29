@@ -113,7 +113,7 @@ if __name__ == "__main__":
     )
 
     # Compare marginal variances of observations
-    var_obs = dalia.get_marginal_variances_observations(
+    var_obs = dalia.get_marginal_variances_linear_predictor(
         theta_external=theta_ref, x_star=x_ref
     )
 

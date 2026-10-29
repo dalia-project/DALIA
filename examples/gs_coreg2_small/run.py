@@ -202,7 +202,7 @@ if __name__ == "__main__":
     )
 
     # Compare marginal variances of observations
-    # var_obs = dalia.get_marginal_variances_observations(theta=theta_ref, x_star=x_ref)
+    # var_obs = dalia.get_marginal_variances_linear_predictor(theta=theta_ref, x_star=x_ref)
     # var_obs_ref = extract_diagonal(model.a @ Qinv_ref @ model.a.T)
     # print_msg(
     #     "Norm (var_obs - var_obs_ref):    ",
