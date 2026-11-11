@@ -1,6 +1,10 @@
 # Copyright 2024-2025 DALIA authors. All rights reserved.
 
 import logging
+from pathlib import Path
+from datetime import datetime
+
+import numpy as np
 
 from scipy import optimize
 from tabulate import tabulate
@@ -78,6 +82,11 @@ class DALIA:
 
         # --- Initialize DALIA
         self.config = config
+        if config.save_matrix_snapshots:
+            if comm_size != 1:
+                raise ValueError("Matrix snapshots currently require a single MPI rank.")
+            if config.solver.type != "serinv":
+                raise ValueError("Matrix snapshots require the Serinv solver.")
 
         self.inner_iteration_max_iter = self.config.inner_iteration_max_iter
         self.eps_inner_iteration = self.config.eps_inner_iteration
@@ -212,6 +221,9 @@ class DALIA:
                     nccl_comm=self.nccl_comm,
                 )
 
+        if config.save_matrix_snapshots and self.solver.A_arrow_tip_block is None:
+            raise ValueError("Matrix snapshots require a matrix with arrow blocks.")
+
         # --- Set up recurrent variables
         self.gradient_f = xp.zeros(self.model.n_hyperparameters, dtype=xp.float64)
         self.f_values_i = xp.zeros(self.n_f_evaluations, dtype=xp.float64)
@@ -236,6 +248,8 @@ class DALIA:
         self.solver_time: ArrayLike = []
         self.construction_time: ArrayLike = []
         self.accepted_iter = 0
+        self.iter = 0
+        self._matrix_snapshot_dir: Path | None = None
 
         # --- Timers
         self.t_construction_qprior = 0.0
@@ -389,6 +403,9 @@ class DALIA:
         minimization_result : scipy.optimize.OptimizeResult
             Result of the optimization procedure.
         """
+        self.iter = 0
+        self._matrix_snapshot_dir = None
+
         # Ensure that all ranks are initialized to the same theta
         check_vector_consistency(
             value=self.model.theta_external,
@@ -400,7 +417,10 @@ class DALIA:
         if len(self.model.theta_external) == 0:
             # Only run the inner iteration
             print_msg("No hyperparameters, just running inner iteration.")
-            self.f_value = self._evaluate_f(self.model.theta_external)
+            self.f_value = self._evaluate_f(
+                self.model.theta_internal,
+                capture_matrix=self.config.save_matrix_snapshots,
+            )
             self.minimization_result: dict = {
                 "theta_internal": copy.deepcopy(self.model.theta_internal),
                 "theta": copy.deepcopy(self.model.theta_external),
@@ -620,7 +640,12 @@ class DALIA:
             # self.x value matches the "bare" hyperparameters evaluation
             if self.color_feval == task_mapping[feval_i]:
                 self.f_values_i[feval_i] = self._evaluate_f(
-                    theta_i=self.theta_mat[:, feval_i]
+                    theta_i=self.theta_mat[:, feval_i],
+                    capture_matrix=(
+                        self.config.save_matrix_snapshots
+                        and feval_i == 0
+                        and self.iter % self.config.matrix_snapshot_interval == 0
+                    ),
                 )
 
         # Here carefull on the reduction as it's gonna add the values from all ranks and not only the root of the groups - TODO
@@ -663,6 +688,7 @@ class DALIA:
     def _evaluate_f(
         self,
         theta_i: NDArray,
+        capture_matrix: bool = False,
     ) -> float:
         """Evaluate the objective function f(theta) = log(p(theta|y)).
 
@@ -670,6 +696,8 @@ class DALIA:
         ----------
         theta_i : NDArray
             Hyperparameters theta.
+        capture_matrix : bool
+            Save the conditional factor blocks and log determinant for this evaluation.
 
         Returns
         -------
@@ -735,6 +763,7 @@ class DALIA:
                         Q_conditional=Q_conditional,
                         x=None,
                         x_mean=self.model.x,
+                        capture_matrix=capture_matrix,
                     )
                 )
 
@@ -783,6 +812,7 @@ class DALIA:
                     Q_conditional=Q_conditional,
                     x=None,
                     x_mean=None,
+                    capture_matrix=capture_matrix,
                 )
             )
 
@@ -1430,6 +1460,7 @@ class DALIA:
         Q_conditional: NDArray,
         x: NDArray = None,
         x_mean: NDArray = None,
+        capture_matrix: bool = False,
     ) -> float:
         """Evaluation of the conditional of the latent parameters at x using
         the conditional precision matrix Q_conditional and the mean x_mean.
@@ -1442,6 +1473,8 @@ class DALIA:
             Latent parameters.
         x_mean : NDArray
             Mean of the latent parameters.
+        capture_matrix : bool
+            Save the current factor blocks before the solver is reused.
 
         Returns
         -------
@@ -1457,6 +1490,8 @@ class DALIA:
         """
         # Compute the log determinant of Q_conditional
         logdet_Q_conditional = self.solver.logdet(sparsity="bta")
+        if capture_matrix:
+            self._save_matrix_snapshot(logdet_Q_conditional)
 
         if x is None and x_mean is None:
             quadratic_form = 0.0
@@ -1484,3 +1519,61 @@ class DALIA:
         log_conditional = 0.5 * logdet_Q_conditional - 0.5 * quadratic_form
 
         return log_conditional
+
+
+    def _save_matrix_snapshot(self, logdet_Q_conditional: float) -> None:
+        """Save the current conditional factor blocks for one objective call.
+
+        Iteration numbers count objective calls, including line search trials.
+        A new run directory is created lazily for each minimization. Files use
+        NumPy arrays and scalar metadata and can be loaded with allow_pickle=False.
+        Bottom blocks are joined horizontally into a C-contiguous matrix of
+        shape (arrowhead_blocksize, n_diag_blocks * diagonal_blocksize).
+        """
+        bottom_blocks = get_host(self.solver.A_arrow_bottom_blocks)
+        bottom_matrix = np.ascontiguousarray(np.concatenate(bottom_blocks, axis=1))
+
+        if self._matrix_snapshot_dir is None:
+            root = self.config.output_dir / "matrix_snapshots"
+            root.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().astimezone().strftime("%Y-%m-%d_%H-%M-%S")
+            run_dir = root / timestamp
+            suffix = 1
+            while True:
+                try:
+                    run_dir.mkdir()
+                    break
+                except FileExistsError:
+                    # Preserve separate runs started within the same second.
+                    run_dir = root / f"{timestamp}_{suffix}"
+                    suffix += 1
+            self._matrix_snapshot_dir = run_dir
+            logging.info("Saving matrix snapshots to %s", self._matrix_snapshot_dir)
+
+        iteration_dir = self._matrix_snapshot_dir / f"iteration_{self.iter:06d}"
+        iteration_dir.mkdir(parents=True, exist_ok=True)
+        destination = iteration_dir / "rank_000000.npz"
+        temporary = iteration_dir / ".rank_000000.npz.tmp"
+        try:
+            with temporary.open("wb") as handle:
+                np.savez(
+                    handle,
+                    A_arrow_bottom_blocks=bottom_matrix,
+                    A_arrow_tip_block=np.array(
+                        get_host(self.solver.A_arrow_tip_block), copy=True
+                    ),
+                    theta_internal=np.array(get_host(self.model.theta_internal), copy=True),
+                    theta_external=np.array(get_host(self.model.theta_external), copy=True),
+                    logdet_Q_conditional=float(logdet_Q_conditional),
+                    iteration=self.iter,
+                    accepted_steps_before_call=self.accepted_iter,
+                    feval_index=0,
+                    world_rank=0,
+                    solver_rank=0,
+                    matrix="Q_conditional",
+                    array_state="after_factorization",
+                    schema_version=2,
+                )
+            temporary.replace(destination)
+        finally:
+            temporary.unlink(missing_ok=True)
