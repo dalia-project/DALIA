@@ -1517,15 +1517,15 @@ class DALIA:
             tip_accu = x_mean[-self.model.total_number_fixed_effects() :].copy()
             if capture_matrix:
                 self._save_matrix_snapshot(logdet_Q_conditional, tip_accu=tip_accu)
-            synchronize(comm=self.comm_qeval)
-            allreduce(
-                tip_accu,
-                op="sum",
-                factor=1 / self.comm_qeval.size,
-                comm=self.comm_qeval,
-            )
-            synchronize(comm=self.comm_qeval)
-            x_mean[-self.model.total_number_fixed_effects() :] = tip_accu
+            # synchronize(comm=self.comm_qeval)
+            # allreduce(
+            #     tip_accu,
+            #     op="sum",
+            #     factor=1 / self.comm_qeval.size,
+            #     comm=self.comm_qeval,
+            # )
+            # synchronize(comm=self.comm_qeval)
+            # x_mean[-self.model.total_number_fixed_effects() :] = tip_accu
 
             if x is None and x_mean is not None:
                 quadratic_form = x_mean.T @ Q_conditional @ x_mean
@@ -1536,7 +1536,6 @@ class DALIA:
         log_conditional = 0.5 * logdet_Q_conditional - 0.5 * quadratic_form
 
         return log_conditional
-
 
     def _prepare_matrix_snapshot_directory(self, comm) -> None:
         """Create one run directory and share its path within the calling group."""
@@ -1567,7 +1566,6 @@ class DALIA:
                 raise OSError(f"Could not create matrix snapshot directory: {directory_error}")
             self._matrix_snapshot_dir = Path(run_dir)
             logging.info("Saving matrix snapshots to %s", self._matrix_snapshot_dir)
-
 
     def _save_matrix_snapshot(
         self, logdet_Q_conditional: float, tip_accu: NDArray | None = None
@@ -1630,7 +1628,6 @@ class DALIA:
             temporary.replace(destination)
         finally:
             temporary.unlink(missing_ok=True)
-
 
     def _save_f_components(self, components: dict, f_value: float) -> None:
         """Save this rank's four terms. NaN denotes a term it did not compute."""
