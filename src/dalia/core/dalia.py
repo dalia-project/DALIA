@@ -83,8 +83,6 @@ class DALIA:
         # --- Initialize DALIA
         self.config = config
         if config.save_matrix_snapshots:
-            if comm_size != 1:
-                raise ValueError("Matrix snapshots currently require a single MPI rank.")
             if config.solver.type != "serinv":
                 raise ValueError("Matrix snapshots require the Serinv solver.")
 
@@ -1522,58 +1520,84 @@ class DALIA:
 
 
     def _save_matrix_snapshot(self, logdet_Q_conditional: float) -> None:
-        """Save the current conditional factor blocks for one objective call.
+        """Save each solver rank's conditional tip for one objective call.
 
+        Distributed records contain this rank's computed reduced-system tip and
+        its local tip contribution. Tip values are never broadcast or averaged.
+        Serial records also contain the horizontally concatenated bottom blocks.
         Iteration numbers count objective calls, including line search trials.
-        A new run directory is created lazily for each minimization. Files use
-        NumPy arrays and scalar metadata and can be loaded with allow_pickle=False.
-        Bottom blocks are joined horizontally into a C-contiguous matrix of
-        shape (arrowhead_blocksize, n_diag_blocks * diagonal_blocksize).
         """
-        bottom_blocks = get_host(self.solver.A_arrow_bottom_blocks)
-        bottom_matrix = np.ascontiguousarray(np.concatenate(bottom_blocks, axis=1))
-
         if self._matrix_snapshot_dir is None:
-            root = self.config.output_dir / "matrix_snapshots"
-            root.mkdir(parents=True, exist_ok=True)
-            timestamp = datetime.now().astimezone().strftime("%Y-%m-%d_%H-%M-%S")
-            run_dir = root / timestamp
-            suffix = 1
-            while True:
+            run_dir = None
+            directory_error = None
+            if self.comm_qeval.rank == 0:
                 try:
-                    run_dir.mkdir()
-                    break
-                except FileExistsError:
-                    # Preserve separate runs started within the same second.
-                    run_dir = root / f"{timestamp}_{suffix}"
-                    suffix += 1
-            self._matrix_snapshot_dir = run_dir
+                    root = (self.config.output_dir / "matrix_snapshots").resolve()
+                    root.mkdir(parents=True, exist_ok=True)
+                    timestamp = datetime.now().astimezone().strftime("%Y-%m-%d_%H-%M-%S")
+                    run_dir = root / timestamp
+                    suffix = 1
+                    while True:
+                        try:
+                            run_dir.mkdir()
+                            break
+                        except FileExistsError:
+                            run_dir = root / f"{timestamp}_{suffix}"
+                            suffix += 1
+                except OSError as error:
+                    directory_error = str(error)
+            if self.comm_qeval.size > 1:
+                run_dir, directory_error = self.comm_qeval.bcast(
+                    (run_dir, directory_error), root=0
+                )
+            if directory_error is not None:
+                raise OSError(f"Could not create matrix snapshot directory: {directory_error}")
+            self._matrix_snapshot_dir = Path(run_dir)
             logging.info("Saving matrix snapshots to %s", self._matrix_snapshot_dir)
+
+        distributed = isinstance(self.solver, DistSerinvSolver)
+        tip = (
+            self.solver.reduced_system["A_arrow_tip_block"]
+            if distributed
+            else self.solver.A_arrow_tip_block
+        )
+        world_rank = self.initial_comm_world.rank
+        record = dict(
+            A_arrow_tip_block=np.array(get_host(tip), copy=True),
+            theta_internal=np.array(get_host(self.model.theta_internal), copy=True),
+            theta_external=np.array(get_host(self.model.theta_external), copy=True),
+            logdet_Q_conditional=float(logdet_Q_conditional),
+            iteration=self.iter,
+            accepted_steps_before_call=self.accepted_iter,
+            feval_index=0,
+            world_rank=world_rank,
+            solver_rank=self.comm_qeval.rank,
+            solver_size=self.comm_qeval.size,
+            world_size=self.initial_comm_world.size,
+            feval_group=self.color_feval,
+            qeval_group=self.color_qeval,
+            matrix="Q_conditional",
+            array_state="after_factorization",
+            tip_source="reduced_system" if distributed else "solver",
+            schema_version=3,
+        )
+        if distributed:
+            record["A_arrow_tip_block_local"] = np.array(
+                get_host(self.solver.A_arrow_tip_block), copy=True
+            )
+        else:
+            bottom_blocks = get_host(self.solver.A_arrow_bottom_blocks)
+            record["A_arrow_bottom_blocks"] = np.ascontiguousarray(
+                np.concatenate(bottom_blocks, axis=1)
+            )
 
         iteration_dir = self._matrix_snapshot_dir / f"iteration_{self.iter:06d}"
         iteration_dir.mkdir(parents=True, exist_ok=True)
-        destination = iteration_dir / "rank_000000.npz"
-        temporary = iteration_dir / ".rank_000000.npz.tmp"
+        destination = iteration_dir / f"rank_{world_rank:06d}.npz"
+        temporary = iteration_dir / f".rank_{world_rank:06d}.npz.tmp"
         try:
             with temporary.open("wb") as handle:
-                np.savez(
-                    handle,
-                    A_arrow_bottom_blocks=bottom_matrix,
-                    A_arrow_tip_block=np.array(
-                        get_host(self.solver.A_arrow_tip_block), copy=True
-                    ),
-                    theta_internal=np.array(get_host(self.model.theta_internal), copy=True),
-                    theta_external=np.array(get_host(self.model.theta_external), copy=True),
-                    logdet_Q_conditional=float(logdet_Q_conditional),
-                    iteration=self.iter,
-                    accepted_steps_before_call=self.accepted_iter,
-                    feval_index=0,
-                    world_rank=0,
-                    solver_rank=0,
-                    matrix="Q_conditional",
-                    array_state="after_factorization",
-                    schema_version=2,
-                )
+                np.savez(handle, **record)
             temporary.replace(destination)
         finally:
             temporary.unlink(missing_ok=True)

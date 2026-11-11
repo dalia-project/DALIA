@@ -65,7 +65,7 @@ class DaliaConfig(BaseModel):
     simulation_dir: Path = Path("./dalia/")
     output_dir: Path = Path("./output/")
 
-    # --- Matrix snapshots (single rank, Serinv with arrow blocks) -------------
+    # --- Matrix snapshots (Serinv with arrow blocks) -------------------------
     save_matrix_snapshots: bool = False
     # Objective calls, including line search trials. Saves 0, N, 2N, ...
     matrix_snapshot_interval: PositiveInt = 1
