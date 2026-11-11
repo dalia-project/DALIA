@@ -695,7 +695,7 @@ class DALIA:
         theta_i : NDArray
             Hyperparameters theta.
         capture_matrix : bool
-            Save the conditional factor blocks and log determinant for this evaluation.
+            Save conditional factor data and the locally computed objective terms.
 
         Returns
         -------
@@ -717,6 +717,12 @@ class DALIA:
         # self.model.theta_internal[:] = theta_i
         self.model.theta_internal = theta_i
         f_theta = xp.zeros(1, dtype=xp.float64)
+        log_prior_hyperparameters = None
+        likelihood = None
+        prior_latent_parameters = None
+        conditional_latent_parameters = None
+        if capture_matrix:
+            self._prepare_matrix_snapshot_directory(self.comm_feval)
 
         # --- Optimize x and evaluate the conditional of the latent parameters
         if self.model.is_likelihood_gaussian():
@@ -842,6 +848,17 @@ class DALIA:
             comm=self.comm_feval,
         )
         synchronize(comm=self.comm_feval)
+
+        if capture_matrix:
+            self._save_f_components(
+                {
+                    "log_likelihood": likelihood,
+                    "log_prior_hyperparameters": log_prior_hyperparameters,
+                    "log_prior_latent_parameters": prior_latent_parameters,
+                    "log_conditional_latent_parameters": conditional_latent_parameters,
+                },
+                f_theta[0],
+            )
 
         return f_theta[0]
 
@@ -1521,21 +1538,12 @@ class DALIA:
         return log_conditional
 
 
-    def _save_matrix_snapshot(
-        self, logdet_Q_conditional: float, tip_accu: NDArray | None = None
-    ) -> None:
-        """Save each solver rank's conditional tip for one objective call.
-
-        Distributed records contain this rank's computed reduced-system tip and
-        its local tip contribution. Tip values are never broadcast or averaged.
-        Serial records also contain the horizontally concatenated bottom blocks.
-        When supplied, tip_accu is saved before its synchronization and allreduce.
-        Iteration numbers count objective calls, including line search trials.
-        """
+    def _prepare_matrix_snapshot_directory(self, comm) -> None:
+        """Create one run directory and share its path within the calling group."""
         if self._matrix_snapshot_dir is None:
             run_dir = None
             directory_error = None
-            if self.comm_qeval.rank == 0:
+            if comm.rank == 0:
                 try:
                     root = (self.config.output_dir / "matrix_snapshots").resolve()
                     root.mkdir(parents=True, exist_ok=True)
@@ -1551,14 +1559,28 @@ class DALIA:
                             suffix += 1
                 except OSError as error:
                     directory_error = str(error)
-            if self.comm_qeval.size > 1:
-                run_dir, directory_error = self.comm_qeval.bcast(
+            if comm.size > 1:
+                run_dir, directory_error = comm.bcast(
                     (run_dir, directory_error), root=0
                 )
             if directory_error is not None:
                 raise OSError(f"Could not create matrix snapshot directory: {directory_error}")
             self._matrix_snapshot_dir = Path(run_dir)
             logging.info("Saving matrix snapshots to %s", self._matrix_snapshot_dir)
+
+
+    def _save_matrix_snapshot(
+        self, logdet_Q_conditional: float, tip_accu: NDArray | None = None
+    ) -> None:
+        """Save each solver rank's conditional tip for one objective call.
+
+        Distributed records contain this rank's computed reduced-system tip and
+        its local tip contribution. Tip values are never broadcast or averaged.
+        Serial records also contain the horizontally concatenated bottom blocks.
+        When supplied, tip_accu is saved before its synchronization and allreduce.
+        Iteration numbers count objective calls, including line search trials.
+        """
+        self._prepare_matrix_snapshot_directory(self.comm_qeval)
 
         distributed = isinstance(self.solver, DistSerinvSolver)
         tip = (
@@ -1608,3 +1630,21 @@ class DALIA:
             temporary.replace(destination)
         finally:
             temporary.unlink(missing_ok=True)
+
+
+    def _save_f_components(self, components: dict, f_value: float) -> None:
+        """Save this rank's four terms. NaN denotes a term it did not compute."""
+        directory = self._matrix_snapshot_dir / f"iteration_{self.iter:06d}" / "f_components"
+        directory.mkdir(parents=True, exist_ok=True)
+        np.savez(
+            directory / f"rank_{self.initial_comm_world.rank:06d}.npz",
+            theta_internal=get_host(self.model.theta_internal),
+            theta_external=get_host(self.model.theta_external),
+            iteration=self.iter,
+            world_rank=self.initial_comm_world.rank,
+            solver_rank=self.comm_qeval.rank,
+            solver_size=self.comm_qeval.size,
+            f_value=float(f_value),
+            **{name: float(value) if value is not None else np.nan
+               for name, value in components.items()},
+        )
