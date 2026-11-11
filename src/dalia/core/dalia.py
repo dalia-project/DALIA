@@ -1488,16 +1488,18 @@ class DALIA:
         """
         # Compute the log determinant of Q_conditional
         logdet_Q_conditional = self.solver.logdet(sparsity="bta")
-        if capture_matrix:
-            self._save_matrix_snapshot(logdet_Q_conditional)
 
         if x is None and x_mean is None:
+            if capture_matrix:
+                self._save_matrix_snapshot(logdet_Q_conditional)
             quadratic_form = 0.0
         # TODO: there is probably a cleaner way to formulate these statements ...
         # the else fails if x_mean is None
         else:
             # Symmetrizing (averaging the tip of the arrow to tame down numerical innaccuracies)
             tip_accu = x_mean[-self.model.total_number_fixed_effects() :].copy()
+            if capture_matrix:
+                self._save_matrix_snapshot(logdet_Q_conditional, tip_accu=tip_accu)
             synchronize(comm=self.comm_qeval)
             allreduce(
                 tip_accu,
@@ -1519,12 +1521,15 @@ class DALIA:
         return log_conditional
 
 
-    def _save_matrix_snapshot(self, logdet_Q_conditional: float) -> None:
+    def _save_matrix_snapshot(
+        self, logdet_Q_conditional: float, tip_accu: NDArray | None = None
+    ) -> None:
         """Save each solver rank's conditional tip for one objective call.
 
         Distributed records contain this rank's computed reduced-system tip and
         its local tip contribution. Tip values are never broadcast or averaged.
         Serial records also contain the horizontally concatenated bottom blocks.
+        When supplied, tip_accu is saved before its synchronization and allreduce.
         Iteration numbers count objective calls, including line search trials.
         """
         if self._matrix_snapshot_dir is None:
@@ -1579,8 +1584,10 @@ class DALIA:
             matrix="Q_conditional",
             array_state="after_factorization",
             tip_source="reduced_system" if distributed else "solver",
-            schema_version=3,
+            schema_version=4,
         )
+        if tip_accu is not None:
+            record["tip_accu_before_sync"] = np.array(get_host(tip_accu), copy=True)
         if distributed:
             record["A_arrow_tip_block_local"] = np.array(
                 get_host(self.solver.A_arrow_tip_block), copy=True
