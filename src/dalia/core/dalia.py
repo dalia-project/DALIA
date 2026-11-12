@@ -761,13 +761,16 @@ class DALIA:
                     rhs=rhs,
                     sparsity="bta",
                 )
+                logdet_Q_conditional = self.solver.logdet(sparsity="bta")
+                if capture_matrix:
+                    self._save_matrix_snapshot(logdet_Q_conditional)
 
                 conditional_latent_parameters = (
                     self._evaluate_conditional_latent_parameters(
                         Q_conditional=Q_conditional,
                         x=None,
                         x_mean=self.model.x,
-                        capture_matrix=capture_matrix,
+                        logdet_Q_conditional=logdet_Q_conditional,
                     )
                 )
 
@@ -1476,6 +1479,7 @@ class DALIA:
         x: NDArray = None,
         x_mean: NDArray = None,
         capture_matrix: bool = False,
+        logdet_Q_conditional: float | None = None,
     ) -> float:
         """Evaluation of the conditional of the latent parameters at x using
         the conditional precision matrix Q_conditional and the mean x_mean.
@@ -1490,6 +1494,8 @@ class DALIA:
             Mean of the latent parameters.
         capture_matrix : bool
             Save the current factor blocks before the solver is reused.
+        logdet_Q_conditional : float, optional
+            Reuse the determinant computed after the solve.
 
         Returns
         -------
@@ -1504,7 +1510,8 @@ class DALIA:
         log normal: 0.5*log(1/(2*pi)^n * |Q_conditional|)) - 0.5 * (x - x_mean).T @ Q_conditional @ (x - x_mean)
         """
         # Compute the log determinant of Q_conditional
-        logdet_Q_conditional = self.solver.logdet(sparsity="bta")
+        if logdet_Q_conditional is None:
+            logdet_Q_conditional = self.solver.logdet(sparsity="bta")
 
         if x is None and x_mean is None:
             if capture_matrix:
@@ -1514,9 +1521,7 @@ class DALIA:
         # the else fails if x_mean is None
         else:
             # Symmetrizing (averaging the tip of the arrow to tame down numerical innaccuracies)
-            tip_accu = x_mean[-self.model.total_number_fixed_effects() :].copy()
-            if capture_matrix:
-                self._save_matrix_snapshot(logdet_Q_conditional, tip_accu=tip_accu)
+            # tip_accu = x_mean[-self.model.total_number_fixed_effects() :].copy()
             # synchronize(comm=self.comm_qeval)
             # allreduce(
             #     tip_accu,
@@ -1567,16 +1572,11 @@ class DALIA:
             self._matrix_snapshot_dir = Path(run_dir)
             logging.info("Saving matrix snapshots to %s", self._matrix_snapshot_dir)
 
-    def _save_matrix_snapshot(
-        self, logdet_Q_conditional: float, tip_accu: NDArray | None = None
-    ) -> None:
-        """Save each solver rank's conditional tip for one objective call.
+    def _save_matrix_snapshot(self, logdet_Q_conditional: float) -> None:
+        """Save each rank's full allocated reduced arrays after solve.
 
-        Distributed records contain this rank's computed reduced-system tip and
-        its local tip contribution. Tip values are never broadcast or averaged.
-        Serial records also contain the horizontally concatenated bottom blocks.
-        When supplied, tip_accu is saved before its synchronization and allreduce.
-        Iteration numbers count objective calls, including line search trials.
+        No reduced arrays are sliced. reduced_B contains the reduced solution,
+        since the solver overwrites its right-hand side in place.
         """
         self._prepare_matrix_snapshot_directory(self.comm_qeval)
 
@@ -1602,16 +1602,19 @@ class DALIA:
             feval_group=self.color_feval,
             qeval_group=self.color_qeval,
             matrix="Q_conditional",
-            array_state="after_factorization",
+            array_state="after_solve",
             tip_source="reduced_system" if distributed else "solver",
-            schema_version=4,
+            schema_version=6,
         )
-        if tip_accu is not None:
-            record["tip_accu_before_sync"] = np.array(get_host(tip_accu), copy=True)
         if distributed:
             record["A_arrow_tip_block_local"] = np.array(
                 get_host(self.solver.A_arrow_tip_block), copy=True
             )
+            for name in ("A_diagonal_blocks", "A_lower_diagonal_blocks",
+                         "A_lower_arrow_blocks", "A_arrow_tip_block", "B"):
+                record[f"reduced_{name}"] = np.array(
+                    get_host(self.solver.reduced_system[name]), copy=True
+                )
         else:
             bottom_blocks = get_host(self.solver.A_arrow_bottom_blocks)
             record["A_arrow_bottom_blocks"] = np.ascontiguousarray(
@@ -1630,11 +1633,16 @@ class DALIA:
             temporary.unlink(missing_ok=True)
 
     def _save_f_components(self, components: dict, f_value: float) -> None:
-        """Save this rank's four terms. NaN denotes a term it did not compute."""
-        directory = self._matrix_snapshot_dir / f"iteration_{self.iter:06d}" / "f_components"
+        """Add this rank's four terms to its snapshot. Uncomputed terms are NaN."""
+        directory = self._matrix_snapshot_dir / f"iteration_{self.iter:06d}"
         directory.mkdir(parents=True, exist_ok=True)
-        np.savez(
-            directory / f"rank_{self.initial_comm_world.rank:06d}.npz",
+        path = directory / f"rank_{self.initial_comm_world.rank:06d}.npz"
+        record = {}
+        if path.exists():
+            # Preserve the arrays captured before averaging and solver reuse.
+            with np.load(path, allow_pickle=False) as snapshot:
+                record = dict(snapshot)
+        record.update(
             theta_internal=get_host(self.model.theta_internal),
             theta_external=get_host(self.model.theta_external),
             iteration=self.iter,
@@ -1642,6 +1650,8 @@ class DALIA:
             solver_rank=self.comm_qeval.rank,
             solver_size=self.comm_qeval.size,
             f_value=float(f_value),
+            schema_version=6,
             **{name: float(value) if value is not None else np.nan
                for name, value in components.items()},
         )
+        np.savez(path, **record)
